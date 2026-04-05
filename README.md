@@ -1,7 +1,7 @@
 # Web Image Viewer
 ###  瀑布流本地图片浏览器
 
-- [Demo](https://html-app.pages.dev/img)
+- [Demo](https://html-app.pages.dev/img.html)
 
 - 建议开启chrome://flags的Smooth Scrolling和Overlay Scrollbars
 
