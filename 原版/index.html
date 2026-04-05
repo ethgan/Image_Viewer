@@ -1,0 +1,2399 @@
+<!DOCTYPE html>
+<html lang="zh">
+  <head>
+    <title>瀑布流图片浏览器</title>
+    <meta charset="UTF-8" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="black" />
+    <meta name="description" content="Masonry Image Viewer" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        --colgap: 0px;
+        --rowgap: 0px;
+        --imgradius: 0px;
+        --imgborder: 0px;
+        --opacity: 1;
+        --halfwhite: rgba(255, 255, 255, 0.5);
+        --halfblack: rgba(0, 0, 0, 0.5);
+        --accent: #4f9eff;
+        --accent2: #ff6b6b;
+        --toolbar-bg: rgba(18,18,22,0.92);
+        --tool-hover: rgba(255,255,255,0.12);
+        --tool-active: rgba(79,158,255,0.35);
+      }
+      body {
+        margin: 0;
+        background-color: black;
+        color: white;
+        display: flex;
+        overflow-y: scroll;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+      }
+      #hint {
+        position: fixed;
+        height: 100%;
+        width: 100%;
+        display: grid;
+        place-items: center;
+        font-size: xx-large;
+      }
+      #cursorplace {
+        position: fixed;
+        height: 100%;
+        width: 1px;
+        z-index: 1;
+      }
+      #indicator {
+        position: fixed;
+        top: 0;
+        right: 17px;
+        width: 50px;
+        height: 50px;
+        place-items: center;
+        pointer-events: none;
+        background-color: var(--halfblack);
+        border-radius: 50%;
+        font-size: large;
+        animation: scrollmove linear;
+        animation-timeline: scroll();
+        display: none;
+      }
+      #indicator.show { display: grid; }
+      @keyframes scrollmove {
+        from { top: 0; }
+        to { top: calc(100vh - 50px); }
+      }
+      #imgbox {
+        flex: 1;
+        display: flex;
+        flex-wrap: wrap;
+        line-height: 0;
+        column-gap: var(--colgap);
+      }
+      .colflex { align-items: flex-start; }
+      .rowflex::after { content: ""; flex-grow: 114514; }
+      .rowflex { row-gap: var(--rowgap); }
+      .imgcol {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        row-gap: var(--rowgap);
+      }
+      .wrap { position: relative; cursor: pointer; }
+      .wrap > img {
+        width: 100%;
+        height: auto;
+        box-sizing: border-box;
+        border: solid white;
+        border-radius: var(--imgradius);
+        border-width: var(--imgborder);
+        transition: box-shadow 0.4s ease;
+      }
+      .wrap.viewing > img, .wrap.viewing > #rep {
+        box-shadow: 0 0 0 3px #4f9eff, 0 0 20px rgba(79,158,255,0.5);
+        border-radius: var(--imgradius);
+      }
+      img { user-select: none; }
+      #rep { visibility: hidden; }
+      .wrap:hover > .info { visibility: visible; }
+      .info {
+        position: absolute;
+        bottom: 0;
+        width: 100%;
+        text-align: center;
+        line-height: normal;
+        border-radius: 10px;
+        background-color: var(--halfblack);
+        visibility: hidden;
+      }
+      .info > span { cursor: text; word-break: break-all; }
+
+      /* ===== COVER / ZOOM OVERLAY ===== */
+      #cover {
+        position: fixed;
+        z-index: 2;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        outline: none;
+        background-color: #000;
+        display: none;
+      }
+      #cover.show { display: block; }
+      .zoom { position: fixed; }
+      #previmg, #nextimg { top: 50%; opacity: 0.5; z-index: 15; }
+      #previmg { left: 1%; }
+      #nextimg { right: 1%; }
+      #previmg:hover, #nextimg:hover { opacity: 1; }
+
+      .floatbtn {
+        position: fixed;
+        z-index: 1;
+        width: 50px; height: 50px;
+        display: grid;
+        place-items: center;
+        outline: none;
+        border: medium solid white;
+        border-radius: 50%;
+        background-color: var(--halfblack);
+        color: white;
+        font-size: xx-large;
+        cursor: pointer;
+      }
+      #sidebtn {
+        top: 20px; left: 20px;
+        opacity: var(--opacity);
+      }
+      #sidebtn:hover { opacity: 1; }
+      #treebtn {
+        top: calc(50% - 35px);
+        left: -30px;
+        height: 70px;
+        display: flex;
+        justify-content: end;
+        opacity: var(--opacity);
+      }
+      #treebtn:hover { opacity: 1; }
+      .scrollbtn {
+        position: fixed;
+        z-index: 1;
+        width: 40px; height: 40px;
+        outline: none;
+        border: medium solid white;
+        background-color: var(--halfblack);
+        opacity: var(--opacity);
+        user-select: none;
+        cursor: pointer;
+      }
+      .scrollbtn:hover { opacity: 1; }
+      #totop { bottom: 78px; right: 40px; border-radius: 10px 10px 0 0; }
+      #toend { bottom: 40px; right: 40px; border-radius: 0 0 10px 10px; }
+
+      /* ===== SIDEBAR ===== */
+      #sidebar {
+        position: fixed;
+        left: -400px;
+        display: grid;
+        align-items: center;
+        grid-auto-rows: 40px;
+        grid-template-columns: repeat(6, 50px);
+        column-gap: 10px;
+        border-radius: 20px;
+        padding: 20px;
+        background-color: var(--halfblack);
+        white-space: nowrap;
+        z-index: 1;
+      }
+      #sidebar.show { left: 0; }
+      #sidebar > button {
+        justify-self: center;
+        outline: none;
+        padding: 5px 10px;
+        border: medium solid var(--halfwhite);
+        border-radius: 50px;
+        background-color: var(--halfblack);
+        cursor: pointer;
+        color: white;
+      }
+      #sidebar > button:hover { border-color: white; }
+      #sidebar > button:active { background: var(--halfwhite); }
+      #sidebar > button.active { background: var(--halfwhite); }
+      #treebar {
+        position: fixed;
+        z-index: 2;
+        background-color: var(--halfblack);
+        display: none;
+      }
+      #treebar.show { display: block; }
+      #resizebar {
+        min-width: 200px; max-width: 50vw;
+        resize: horizontal;
+        overflow: scroll;
+        opacity: 0.5;
+      }
+      #resizebar::-webkit-scrollbar { width: 20px; height: 100vh; }
+      #resizebar::-webkit-resizer { background-color: white; }
+      #dirtree {
+        position: absolute;
+        width: calc(100% - 25px);
+        height: 100vh;
+        direction: rtl;
+        overflow-y: scroll;
+        line-height: 1;
+        padding-right: calc(50vw - 100%);
+      }
+      #dirtree > ul { margin: 0; }
+      ul {
+        direction: ltr;
+        margin: 0 0 0 10px;
+        padding: 0;
+        border-left: medium solid var(--halfwhite);
+      }
+      li {
+        position: relative;
+        z-index: 1;
+        min-width: 100%;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        list-style: "📁" inside;
+        padding-bottom: 2px;
+        border-radius: 25px;
+        border: medium solid transparent;
+        cursor: pointer;
+      }
+      li:hover { width: fit-content; border-color: white; background-color: var(--halfblack); }
+      li.active { background-color: var(--halfwhite); }
+      li.visited { opacity: 0.75; }
+      select {
+        justify-self: center;
+        padding: 5px;
+        outline: none;
+        text-align: center;
+        font-size: medium;
+        cursor: pointer;
+        border-radius: 50px;
+        background-color: var(--halfblack);
+        border: medium solid var(--halfwhite);
+        color: white;
+      }
+      select:hover { border-color: white; }
+      [type="text"] {
+        justify-self: center;
+        box-sizing: border-box;
+        width: 100%;
+        padding: 5px;
+        outline: none;
+        text-align: center;
+        font-size: medium;
+        border-radius: 50px;
+        border: medium solid var(--halfwhite);
+        background-color: var(--halfblack);
+        color: white;
+      }
+      [type="text"]:hover { border-color: white; }
+      [type="range"] {
+        appearance: none;
+        width: 200px; height: 10px;
+        border-radius: 10px;
+        border: medium solid white;
+        background-color: var(--halfblack);
+        opacity: 0.5;
+      }
+      [type="range"]:hover { opacity: 1; }
+      ::-webkit-slider-thumb {
+        appearance: none;
+        width: 30px; height: 30px;
+        cursor: pointer;
+        border-radius: 50%;
+        border: medium solid white;
+        background-color: var(--halfblack);
+        opacity: 0.5;
+      }
+      ::-webkit-slider-thumb:hover { opacity: 1; }
+      .span2 { grid-column: span 2; }
+      .span3 { grid-column: span 3; }
+      .span4 { grid-column: span 4; }
+      .tootip { display: none; }
+      .tip:hover .tootip {
+        display: block;
+        position: absolute;
+        background-color: black;
+        padding: 10px;
+        border-radius: 10px;
+      }
+      ::selection { background-color: white; color: black; }
+
+      /* ===== ANNOTATION CANVAS ===== */
+      #annotCanvas {
+        position: fixed;
+        top: 0; left: 0;
+        z-index: 10;
+        pointer-events: none;
+        display: none;
+      }
+      #annotCanvas.active { pointer-events: all; cursor: crosshair; touch-action: none; }
+      #annotCanvas.text-mode { cursor: text; }
+      #annotCanvas.move-mode { cursor: move; }
+
+      /* ===== MODE BADGE (shown in browse mode on the cover) ===== */
+      #editModeBtn {
+        position: fixed;
+        z-index: 15;
+        bottom: 28px; right: 28px;
+        width: 42px; height: 42px;
+        border-radius: 50%;
+        background: rgba(20,20,28,0.8);
+        border: 1.5px solid rgba(255,255,255,0.25);
+        color: rgba(255,255,255,0.7);
+        cursor: pointer;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(12px);
+        transition: all 0.2s ease;
+        outline: none;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+      }
+      #editModeBtn:hover { background: rgba(79,158,255,0.25); border-color: var(--accent); color: white; }
+      #editModeBtn.active { background: rgba(79,158,255,0.35); border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 3px rgba(79,158,255,0.2); }
+      #editModeBtn svg { width: 18px; height: 18px; pointer-events: none; }
+      #editModeBtn::after {
+        content: attr(data-tip);
+        position: absolute;
+        right: calc(100% + 10px);
+        top: 50%; transform: translateY(-50%);
+        background: rgba(0,0,0,0.9);
+        color: white; font-size: 11px;
+        padding: 4px 8px; border-radius: 6px;
+        white-space: nowrap; pointer-events: none;
+        border: 1px solid rgba(255,255,255,0.15);
+        font-family: 'Segoe UI', sans-serif;
+        opacity: 0; transition: opacity 0.15s;
+      }
+      #editModeBtn:hover::after { opacity: 1; }
+
+      /* ===== FLOATING TOOLBAR — RIGHT SIDE PANEL ===== */
+      #floatToolbar {
+        position: fixed;
+        z-index: 25;
+        /* Default: right edge, vertically centered */
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        user-select: none;
+        touch-action: none;
+        display: none; /* hidden until edit mode */
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0;
+      }
+      #floatToolbar.edit-mode { display: flex; }
+
+      /* The actual panel containing all rows */
+      #toolPanel {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        align-items: flex-end;
+        background: rgba(14,14,20,0.95);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 16px;
+        padding: 8px 10px;
+        backdrop-filter: blur(20px);
+        box-shadow: -4px 4px 32px rgba(0,0,0,0.6);
+        max-height: 90vh;
+        overflow-y: auto;
+        overflow-x: visible;
+        scrollbar-width: none;
+      }
+      #toolPanel::-webkit-scrollbar { display: none; }
+
+      .tool-row {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        flex-wrap: nowrap;
+      }
+      /* Thin separator between rows */
+      .row-sep {
+        width: 100%;
+        height: 1px;
+        background: rgba(255,255,255,0.08);
+        margin: 2px 0;
+      }
+      .tool-sep {
+        width: 1px; height: 28px;
+        background: rgba(255,255,255,0.15);
+        margin: 0 2px;
+        align-self: center;
+        flex-shrink: 0;
+      }
+      .tool-btn {
+        width: 36px; height: 36px;
+        border-radius: 9px;
+        border: none;
+        background: transparent;
+        color: rgba(255,255,255,0.7);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.15s ease;
+        position: relative;
+        outline: none;
+        flex-shrink: 0;
+      }
+      .tool-btn:hover {
+        background: rgba(255,255,255,0.1);
+        color: white;
+      }
+      .tool-btn.active {
+        background: rgba(79,158,255,0.3);
+        color: var(--accent);
+        box-shadow: 0 0 0 1.5px rgba(79,158,255,0.4);
+      }
+      .tool-btn svg { width: 18px; height: 18px; pointer-events: none; }
+      /* Tooltip rendered via JS to avoid CSS overflow clipping */
+      #toolTip {
+        position: fixed;
+        background: rgba(0,0,0,0.92);
+        color: white; font-size: 11px;
+        padding: 4px 9px; border-radius: 6px;
+        white-space: nowrap; pointer-events: none;
+        border: 1px solid rgba(255,255,255,0.15);
+        z-index: 999;
+        display: none;
+        transform: translateY(-50%);
+      }
+
+      /* Color & size pickers */
+      .color-swatch {
+        width: 20px; height: 20px;
+        border-radius: 50%;
+        cursor: pointer;
+        border: 2px solid transparent;
+        transition: all 0.15s;
+        flex-shrink: 0;
+        align-self: center;
+      }
+      .color-swatch.selected { border-color: white; transform: scale(1.2); }
+      .color-swatch:hover { transform: scale(1.15); }
+      .size-dot {
+        border-radius: 50%;
+        background: white;
+        cursor: pointer;
+        border: 1.5px solid transparent;
+        transition: all 0.15s;
+        align-self: center;
+        flex-shrink: 0;
+      }
+      .size-dot.selected { border-color: var(--accent); }
+      .size-dot:hover { opacity: 0.8; }
+
+      /* Edit (image adjust) panel — floats left of the toolbar */
+      #editPanel {
+        position: absolute;
+        right: calc(100% + 12px);
+        top: 50%; transform: translateY(-50%);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+        background: rgba(14,14,20,0.95);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 16px;
+        padding: 14px 16px;
+        backdrop-filter: blur(20px);
+        box-shadow: -4px 4px 32px rgba(0,0,0,0.6);
+        width: 240px;
+        display: none;
+        transform: translateY(-50%) translateX(8px);
+      }
+      #editPanel.open {
+        opacity: 1;
+        pointer-events: all;
+        display: block;
+        transform: translateY(-50%) translateX(0);
+      }
+      .edit-row {
+        display: flex; align-items: center;
+        gap: 10px; margin-bottom: 10px;
+      }
+      .edit-label {
+        font-size: 11px; color: rgba(255,255,255,0.6);
+        width: 48px; flex-shrink: 0;
+      }
+      .edit-slider {
+        flex: 1; height: 4px; border-radius: 4px;
+        border: none !important; background: rgba(255,255,255,0.2);
+        outline: none; appearance: none; cursor: pointer;
+        opacity: 1 !important; width: auto !important;
+      }
+      .edit-slider::-webkit-slider-thumb {
+        appearance: none; width: 13px; height: 13px;
+        border-radius: 50%; background: var(--accent);
+        border: none !important; opacity: 1 !important;
+        cursor: pointer; box-shadow: 0 0 0 3px rgba(79,158,255,0.25);
+      }
+      .edit-val {
+        font-size: 11px; color: rgba(255,255,255,0.45);
+        width: 26px; text-align: right;
+      }
+
+      /* Toast notification */
+      #toast {
+        position: fixed;
+        bottom: 30px; left: 50%;
+        transform: translateX(-50%) translateY(20px);
+        background: rgba(20,20,28,0.95);
+        color: white; padding: 8px 18px;
+        border-radius: 20px; font-size: 13px;
+        z-index: 100; opacity: 0;
+        transition: all 0.3s ease;
+        border: 1px solid rgba(255,255,255,0.15);
+        pointer-events: none; white-space: nowrap;
+        font-family: 'Segoe UI', sans-serif;
+      }
+      #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+      /* ===== SOCIAL ICONS (bottom-right corner) ===== */
+      #socialIcons {
+        position: fixed;
+        bottom: 18px; right: 18px;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: center;
+      }
+      .social-icon {
+        width: 32px; height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.08);
+        color: rgba(255,255,255,0.18);
+        text-decoration: none;
+        opacity: 0.3;
+        transition: color 0.25s, background 0.25s, border-color 0.25s, opacity 0.25s, transform 0.2s;
+      }
+      #socialIcons:hover .social-icon {
+        opacity: 1;
+        color: rgba(255,255,255,0.65);
+        background: rgba(255,255,255,0.1);
+        border-color: rgba(255,255,255,0.25);
+      }
+      .social-icon:hover {
+        color: white !important;
+        background: rgba(255,255,255,0.18) !important;
+        border-color: rgba(255,255,255,0.5) !important;
+        transform: scale(1.15);
+      }
+      .social-icon svg { width: 16px; height: 16px; pointer-events: none; }
+    </style>
+  </head>
+  <body>
+    <div id="hint">点击或拖入图片文件夹</div>
+    <div id="cursorplace"></div>
+    <div id="imgbox"></div>
+    <div id="indicator"></div>
+
+    <!-- Main cover/zoom overlay -->
+    <div id="cover" tabindex="1">
+      <button id="previmg" class="floatbtn">&#8249;</button>
+      <button id="nextimg" class="floatbtn">&#8250;</button>
+    </div>
+
+    <!-- Annotation canvas (over the cover) -->
+    <canvas id="annotCanvas"></canvas>
+
+    <!-- Text input for annotation (legacy, hidden) -->
+    <input id="textInput" type="text" style="display:none" />
+
+    <!-- Toast notification -->
+    <div id="toast"></div>
+
+    <!-- Social icons (bottom-right, subtle until hover) -->
+    <div id="socialIcons">
+      <a class="social-icon" href="https://github.com" target="_blank" rel="noopener" title="GitHub">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.866-.013-1.7-2.782.604-3.369-1.34-3.369-1.34-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0 1 12 6.836a9.59 9.59 0 0 1 2.504.337c1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+      </a>
+      <a class="social-icon" href="https://youtube.com" target="_blank" rel="noopener" title="YouTube">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M23.495 6.205a3.007 3.007 0 0 0-2.088-2.088c-1.87-.501-9.396-.501-9.396-.501s-7.507-.01-9.396.501A3.007 3.007 0 0 0 .527 6.205a31.247 31.247 0 0 0-.522 5.805 31.247 31.247 0 0 0 .522 5.783 3.007 3.007 0 0 0 2.088 2.088c1.868.502 9.396.502 9.396.502s7.506 0 9.396-.502a3.007 3.007 0 0 0 2.088-2.088 31.247 31.247 0 0 0 .5-5.783 31.247 31.247 0 0 0-.5-5.805zM9.609 15.601V8.408l6.264 3.602z"/></svg>
+      </a>
+      <a class="social-icon" href="https://t.me" target="_blank" rel="noopener" title="Telegram">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+      </a>
+    </div>
+
+    <!-- Edit mode toggle button (shown in browse mode, top-right) -->
+    <button id="editModeBtn" data-tip="进入编辑模式 (E)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+      </svg>
+    </button>
+
+    <!-- Right-side annotation toolbar (shown in edit mode only) -->
+    <div id="floatToolbar">
+      <!-- Image adjust panel (pops left) -->
+      <div id="editPanel">
+        <div class="edit-row">
+          <span class="edit-label">亮度</span>
+          <input class="edit-slider" type="range" id="slBrightness" min="-100" max="100" value="0" />
+          <span class="edit-val" id="valBrightness">0</span>
+        </div>
+        <div class="edit-row">
+          <span class="edit-label">对比度</span>
+          <input class="edit-slider" type="range" id="slContrast" min="-100" max="100" value="0" />
+          <span class="edit-val" id="valContrast">0</span>
+        </div>
+        <div class="edit-row">
+          <span class="edit-label">饱和度</span>
+          <input class="edit-slider" type="range" id="slSaturation" min="-100" max="100" value="0" />
+          <span class="edit-val" id="valSaturation">0</span>
+        </div>
+        <div class="edit-row">
+          <span class="edit-label">模糊</span>
+          <input class="edit-slider" type="range" id="slBlur" min="0" max="20" value="0" />
+          <span class="edit-val" id="valBlur">0</span>
+        </div>
+        <div class="edit-row" style="margin-bottom:0;gap:6px;justify-content:flex-end;">
+          <button class="tool-btn" id="btnFlipH" data-tip="水平翻转" style="width:auto;padding:0 8px;font-size:11px;color:rgba(255,255,255,0.8);">↔</button>
+          <button class="tool-btn" id="btnFlipV" data-tip="垂直翻转" style="width:auto;padding:0 8px;font-size:11px;color:rgba(255,255,255,0.8);">↕</button>
+          <button class="tool-btn" id="btnRotate" data-tip="旋转90°" style="width:auto;padding:0 8px;font-size:13px;color:rgba(255,255,255,0.8);">↻</button>
+          <button class="tool-btn" id="btnResetEdit" style="width:auto;padding:0 8px;font-size:11px;color:rgba(255,100,100,0.8);">重置</button>
+        </div>
+      </div>
+
+      <!-- Main tool panel -->
+      <div id="toolPanel">
+        <!-- Drawing tools -->
+        <div class="tool-row">
+          <button class="tool-btn" id="toolArrow" data-tip="箭头 (A)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="9 5 19 5 19 15"/></svg>
+          </button>
+          <button class="tool-btn" id="toolPen" data-tip="画笔 (P)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+          </button>
+          <button class="tool-btn" id="toolLine" data-tip="直线 (L)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="20" x2="20" y2="4"/></svg>
+          </button>
+          <button class="tool-btn" id="toolRect" data-tip="矩形 (R)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+          </button>
+          <button class="tool-btn" id="toolCircle" data-tip="椭圆 (C)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="12" rx="10" ry="7"/></svg>
+          </button>
+          <button class="tool-btn" id="toolText" data-tip="文字 (T)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+          </button>
+          <button class="tool-btn" id="toolMarker" data-tip="马克笔 (M)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l4 4 12-12-4-4L3 17z"/><line x1="15" y1="3" x2="21" y2="9"/></svg>
+          </button>
+          <button class="tool-btn" id="toolEraser" data-tip="橡皮擦 (X)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20H7L3 16l10-10 7 7-2.5 2.5"/><path d="M6.0 11.0 L13 18"/></svg>
+          </button>
+          <button class="tool-btn" id="toolMosaic" data-tip="马赛克">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="4" height="4"/><rect x="10" y="3" width="4" height="4"/><rect x="17" y="3" width="4" height="4"/><rect x="3" y="10" width="4" height="4"/><rect x="10" y="10" width="4" height="4"/><rect x="17" y="10" width="4" height="4"/><rect x="3" y="17" width="4" height="4"/><rect x="10" y="17" width="4" height="4"/><rect x="17" y="17" width="4" height="4"/></svg>
+          </button>
+        </div>
+        <div class="row-sep"></div>
+
+        <!-- Line style -->
+        <div class="tool-row">
+          <button class="tool-btn dash-btn active" id="dashSolid" data-dash="solid" data-tip="实线" style="width:44px;">
+            <svg viewBox="0 0 32 6" width="32" height="6"><line x1="0" y1="3" x2="32" y2="3" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+          </button>
+          <button class="tool-btn dash-btn" id="dashDot" data-dash="dot" data-tip="点线" style="width:44px;">
+            <svg viewBox="0 0 32 6" width="32" height="6"><line x1="0" y1="3" x2="32" y2="3" stroke="currentColor" stroke-width="2.5" stroke-dasharray="2 5" stroke-linecap="round"/></svg>
+          </button>
+          <button class="tool-btn dash-btn" id="dashDash" data-dash="dash" data-tip="虚线" style="width:44px;">
+            <svg viewBox="0 0 32 6" width="32" height="6"><line x1="0" y1="3" x2="32" y2="3" stroke="currentColor" stroke-width="2.5" stroke-dasharray="8 4" stroke-linecap="round"/></svg>
+          </button>
+          <button class="tool-btn dash-btn" id="dashLong" data-dash="long" data-tip="长虚线" style="width:44px;">
+            <svg viewBox="0 0 32 6" width="32" height="6"><line x1="0" y1="3" x2="32" y2="3" stroke="currentColor" stroke-width="2.5" stroke-dasharray="13 4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+        <div class="row-sep"></div>
+
+        <!-- Colors -->
+        <div class="tool-row" style="flex-wrap:wrap;gap:5px;justify-content:flex-end;">
+          <div class="color-swatch selected" data-color="#ff4545" style="background:#ff4545;"></div>
+          <div class="color-swatch" data-color="#ff8c00" style="background:#ff8c00;"></div>
+          <div class="color-swatch" data-color="#ffb800" style="background:#ffb800;"></div>
+          <div class="color-swatch" data-color="#4ade80" style="background:#4ade80;"></div>
+          <div class="color-swatch" data-color="#4f9eff" style="background:#4f9eff;"></div>
+          <div class="color-swatch" data-color="#c084fc" style="background:#c084fc;"></div>
+          <div class="color-swatch" data-color="#ffffff" style="background:#fff;"></div>
+          <div class="color-swatch" data-color="#000000" style="background:#000;border:1px solid rgba(255,255,255,0.3)"></div>
+        </div>
+
+        <!-- Sizes -->
+        <div class="tool-row" style="gap:8px;justify-content:flex-end;padding:4px 2px;">
+          <div class="size-dot selected" data-size="2" style="width:5px;height:5px;"></div>
+          <div class="size-dot" data-size="4" style="width:9px;height:9px;"></div>
+          <div class="size-dot" data-size="8" style="width:13px;height:13px;"></div>
+          <div class="size-dot" data-size="16" style="width:18px;height:18px;"></div>
+        </div>
+        <div class="row-sep"></div>
+
+        <!-- Actions -->
+        <div class="tool-row">
+          <button class="tool-btn" id="toolEdit" data-tip="图像调整">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 0-14.14 0"/><path d="M4.93 19.07a10 10 0 0 0 14.14 0"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>
+          </button>
+          <button class="tool-btn" id="toolUndo" data-tip="撤销 (Ctrl+Z)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.93"/></svg>
+          </button>
+          <button class="tool-btn" id="toolDelete" data-tip="删除选中 (Del)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+          <button class="tool-btn" id="toolClear" data-tip="清除全部">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+          </button>
+          <button class="tool-btn" id="toolCopyAnnot" data-tip="复制图片">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          </button>
+          <button class="tool-btn" id="toolSave" data-tip="保存图片">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          </button>
+          <!-- Exit edit mode -->
+          <button class="tool-btn" id="toolExitEdit" data-tip="退出编辑模式 (E)" style="color:rgba(255,100,100,0.7);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Nav buttons (inside cover) -->
+    <button class="floatbtn" id="treebtn">&#8250;</button>
+    <button class="floatbtn" id="sidebtn">+</button>
+    <button class="scrollbtn" id="toend"></button>
+    <button class="scrollbtn" id="totop"></button>
+
+    <div id="treebar">
+      <div id="dirtree"><ul></ul></div>
+      <div id="resizebar"></div>
+    </div>
+
+    <div id="sidebar">
+      <div>列距：</div>
+      <input type="range" id="colgapinput" min="0" max="40" value="20" class="span4" />
+      <div id="colgap">0</div>
+      <div>行距：</div>
+      <input type="range" id="rowgapinput" min="0" max="40" value="20" class="span4" />
+      <div id="rowgap">0</div>
+      <div>圆角：</div>
+      <input type="range" id="imgradiusinput" min="0" max="40" value="20" class="span4" />
+      <div id="imgradius">0</div>
+      <div>边框：</div>
+      <input type="range" id="imgborderinput" min="0" max="5" value="0" class="span4" />
+      <div id="imgborder">0</div>
+      <div>列数：</div>
+      <button id="colflex">纵向</button>
+      <input type="range" id="colcountinput" min="1" max="8" value="4" class="span3" />
+      <div id="colcount">4</div>
+      <div>高度：</div>
+      <button id="rowflex">横向</button>
+      <input type="range" id="minheightinput" min="100" max="500" value="300" step="10" class="span3" />
+      <div id="minheight">250</div>
+      <div>总数：</div>
+      <div id="totalcount"></div>
+      <div>加载：</div>
+      <div id="loadedcount"></div>
+      <div>显示：</div>
+      <div id="showcount"></div>
+      <button id="loadall">加载</button>
+      <button id="pause">暂停</button>
+      <div>跳转：</div>
+      <input id="jumpTo" type="text" />
+      <div>每次：</div>
+      <input id="perload" type="text" value="25" />
+      <div>排序：</div>
+      <select id="sortby" class="span2">
+        <option value="default">默认</option>
+        <option value="lastModified">日期</option>
+        <option value="size">大小</option>
+      </select>
+      <select id="order" class="span2">
+        <option value="asc">升序</option>
+        <option value="desc">降序</option>
+      </select>
+      <button id="resort">重排</button>
+      <div>过滤：</div>
+      <button id="filtmono" class="span2">黑白漫画</button>
+      <button id="filtborder" class="span2">纯色边框</button>
+      <button id="revert">反转</button>
+      <div class="tip">
+        宽高：
+        <div class="tootip">
+          例：<br />"16:9"表示宽高比等于16：9<br />"16:9-"表示宽高比大于16：9<br />"-16:9"表示宽高比小于16：9<br />"4:3-16:9"表示宽高比在4:3到16：9之间<br />
+        </div>
+      </div>
+      <input type="text" id="aspectratio" class="span3" />
+    </div>
+
+    <script>
+      // ============================================================
+      // ORIGINAL UTILITIES & CLASSES
+      // ============================================================
+      class Queue {
+        constructor(items = []) { this.items = items; this.getters = []; }
+        push(item) { this.items.push(item); if (this.getters.length > 0) this.getters.shift()(this.items.shift()); }
+        shift() {
+          if (this.items.length === 0) return new Promise((resolve) => this.getters.push(resolve));
+          return this.items.shift();
+        }
+      }
+      class Semaphore {
+        constructor(value = 1) { this.value = value; this.queue = []; }
+        async acquire() { if (this.value > 0) this.value--; else return new Promise((resolve) => this.queue.push(resolve)); }
+        release() { this.value++; if (this.queue.length > 0) this.queue.shift()(); }
+      }
+      DataView.prototype.getUint24 = function(byteOffset, littleEndian) {
+        if (littleEndian) return this.getUint8(byteOffset) | (this.getUint8(byteOffset+1)<<8) | (this.getUint8(byteOffset+2)<<16);
+        else return (this.getUint8(byteOffset)<<16) | (this.getUint8(byteOffset+1)<<8) | this.getUint8(byteOffset+2);
+      };
+      function throttle(func, ms = 1000) {
+        let timeout; let con = this;
+        return function() { if (timeout) return; func.apply(con, arguments); timeout = setTimeout(() => timeout = null, ms); };
+      }
+      function debounce(func, ms = 1000) {
+        let timeout; let con = this;
+        return function() { clearTimeout(timeout); timeout = setTimeout(() => func.apply(con, arguments), ms); };
+      }
+      function range(start, end, step = 1) { let arr = []; for (let i = start; i < end; i += step) arr.push(i); return arr; }
+      function flatObj(obj, path) {
+        obj = path.split("/").reduce((obj, name) => obj[name], obj);
+        function recurse(obj) { for (let key in obj) { if (typeof obj[key] === "object") recurse(obj[key]); else arr.push(obj[key]); } }
+        let arr = []; recurse(obj); return arr;
+      }
+      let MB = 1024**2, GB = 1024**3;
+      function formatSize(bytes) {
+        if (bytes < 1024) return `${bytes} B`;
+        else if (bytes < MB) return `${(bytes/1024).toFixed(2)} KB`;
+        else if (bytes < GB) return `${(bytes/MB).toFixed(2)} MB`;
+      }
+      let sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      let log = console.log;
+      let docEl = document.documentElement;
+      let getEl = (id) => document.getElementById(id);
+      let newEl = (tag) => document.createElement(tag);
+
+      // Element references
+      let aspectratio = getEl("aspectratio"), colcountinput = getEl("colcountinput");
+      let cover = getEl("cover"), cursorplace = getEl("cursorplace");
+      let dirtree = getEl("dirtree"), filtborder = getEl("filtborder"), filtmono = getEl("filtmono");
+      let hint = getEl("hint"), imgbox = getEl("imgbox"), indicator = getEl("indicator");
+      let jumpTo = getEl("jumpTo"), loadall = getEl("loadall"), loadedcount = getEl("loadedcount");
+      let minheightinput = getEl("minheightinput"), nextimg = getEl("nextimg"), order = getEl("order");
+      let pause = getEl("pause"), perload = getEl("perload"), previmg = getEl("previmg");
+      let resort = getEl("resort"), revert = getEl("revert"), showcount = getEl("showcount");
+      let sidebar = getEl("sidebar"), sidebtn = getEl("sidebtn"), sortby = getEl("sortby");
+      let toend = getEl("toend"), totalcount = getEl("totalcount"), totop = getEl("totop");
+      let treebar = getEl("treebar"), treebtn = getEl("treebtn");
+
+      let zoom, flextype, currdir, minCol, minR, maxR, held = false;
+      totalcount.value = 0; loadedcount.value = 0; showcount.value = 0;
+      let dircount = 0, loadingAll = 0, loading = 0, filting = 0;
+      let imgcols = [], marks = [], allData = new Map(), toLoad = new Queue(), visImgs = new Set();
+      let configs = ["colgap","rowgap","imgradius","imgborder","colcount","minheight"];
+      let enums = { colflex:"colflex", rowflex:"rowflex", default:"default", name:"name", date:"date", size:"size", asc:"asc", desc:"desc" };
+
+      let imgObs = new IntersectionObserver((es) => { es.forEach((e) => { if (e.isIntersecting) visImgs.add(e.target.index); else visImgs.delete(e.target.index); }); });
+      let dirObs = new IntersectionObserver((es) => { es.forEach((e) => { if (e.isIntersecting) { currdir?.classList.remove("active"); currdir?.classList.add("visited"); currdir = getEl("li"+e.target.index); currdir.classList.add("active"); } }); });
+
+      // ============================================================
+      // ANNOTATION SYSTEM v2 — Object Model
+      // ============================================================
+      const annotCanvas = getEl("annotCanvas");
+      const annotCtx = annotCanvas.getContext("2d");
+
+      // ── State ──
+      let annotTool = "arrow";
+      let annotColor = "#ff4545";
+      let annotSize = 2;
+      let annotDash = "solid";
+      let annotEnabled = false;
+
+      let annotObjects = [];
+      let annotHistory = [];
+      let selectedObj = null;   // object currently in "edit state"
+      let dragging = false;
+      let dragOffX = 0, dragOffY = 0;
+      let resizingHandle = -1;
+      let resizeFrozen = null;  // deep-frozen copy at resize start
+      let resizeFrozenBB = null;
+      let editingTextObj = null;
+      let annotDrawing = false;
+      let annotStartX = 0, annotStartY = 0;
+
+      const DASH_MAP = { solid:[], dot:[2,6], dash:[10,7], long:[18,7] };
+      const HANDLE_CURSORS = ["nw-resize","n-resize","ne-resize","e-resize","se-resize","s-resize","sw-resize","w-resize"];
+
+      // ── Canvas sizing ──
+      function resizeAnnotCanvas() {
+        annotCanvas.width = window.innerWidth;
+        annotCanvas.height = window.innerHeight;
+        redrawAll();
+      }
+      resizeAnnotCanvas();
+      window.addEventListener("resize", resizeAnnotCanvas);
+
+      function showAnnotCanvas() { annotCanvas.style.display="block"; annotCanvas.classList.add("active"); annotEnabled=true; updateAnnotCursor(); }
+      function hideAnnotCanvas() { annotCanvas.style.display="none"; annotCanvas.classList.remove("active"); annotEnabled=false; commitTextEdit(); }
+
+      // ── History ──
+      function saveHistory() { annotHistory.push(JSON.stringify(annotObjects)); if(annotHistory.length>60) annotHistory.shift(); }
+      function undoAnnot() { commitTextEdit(); if(!annotHistory.length) return; annotObjects=JSON.parse(annotHistory.pop()); selectedObj=null; redrawAll(); }
+      function clearAnnot() { saveHistory(); annotObjects=[]; selectedObj=null; redrawAll(); }
+
+      // ── Geometry helpers ──
+      function getBoundingBox(obj) {
+        if (obj.type==="pen"||obj.type==="marker") {
+          if (!obj.points?.length) return {x:0,y:0,w:4,h:4};
+          let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+          obj.points.forEach(p=>{x0=Math.min(x0,p.x);y0=Math.min(y0,p.y);x1=Math.max(x1,p.x);y1=Math.max(y1,p.y);});
+          const half = (obj.size*(obj.type==="marker"?6:1))/2;
+          return {x:x0-half,y:y0-half,w:(x1-x0)||4,h:(y1-y0)||4};
+        }
+        if (obj.type==="text") {
+          const fs=obj.size*8+10;
+          annotCtx.font=`bold ${fs}px 'Segoe UI',sans-serif`;
+          const tw=annotCtx.measureText(obj.text||" ").width;
+          return {x:obj.x1,y:obj.y1,w:tw,h:fs*1.3};
+        }
+        if (obj.type==="mosaic") {
+          if (!obj.blocks?.length) return {x:0,y:0,w:4,h:4};
+          const bs=obj.size*8;
+          let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+          obj.blocks.forEach(b=>{x0=Math.min(x0,b.x);y0=Math.min(y0,b.y);x1=Math.max(x1,b.x+bs);y1=Math.max(y1,b.y+bs);});
+          return {x:x0,y:y0,w:x1-x0,h:y1-y0};
+        }
+        const x=Math.min(obj.x1,obj.x2??obj.x1), y=Math.min(obj.y1,obj.y2??obj.y1);
+        const w=Math.abs((obj.x2??obj.x1)-obj.x1)||4, h=Math.abs((obj.y2??obj.y1)-obj.y1)||4;
+        return {x,y,w,h};
+      }
+
+      const HIT_PAD = 10;
+      function hitTest(obj, px, py) {
+        const bb=getBoundingBox(obj);
+        return px>=bb.x-HIT_PAD && px<=bb.x+bb.w+HIT_PAD && py>=bb.y-HIT_PAD && py<=bb.y+bb.h+HIT_PAD;
+      }
+
+      // 8 handles around bounding box: TL,TC,TR,MR,BR,BC,BL,ML
+      // Each stores normalized anchor (ax,ay): 0=left/top, 0.5=mid, 1=right/bottom
+      const SEL_PAD = 10;
+      function getHandles(obj) {
+        const bb=getBoundingBox(obj);
+        const l=bb.x-SEL_PAD, r=bb.x+bb.w+SEL_PAD, t=bb.y-SEL_PAD, b=bb.y+bb.h+SEL_PAD;
+        const mx=(l+r)/2, my=(t+b)/2;
+        return [
+          {x:l, y:t, ax:0,  ay:0  },  // 0 TL
+          {x:mx,y:t, ax:.5, ay:0  },  // 1 TC
+          {x:r, y:t, ax:1,  ay:0  },  // 2 TR
+          {x:r, y:my,ax:1,  ay:.5 },  // 3 MR
+          {x:r, y:b, ax:1,  ay:1  },  // 4 BR
+          {x:mx,y:b, ax:.5, ay:1  },  // 5 BC
+          {x:l, y:b, ax:0,  ay:1  },  // 6 BL
+          {x:l, y:my,ax:0,  ay:.5 },  // 7 ML
+        ];
+      }
+      function hitHandle(obj, px, py) {
+        const handles=getHandles(obj);
+        for(let i=0;i<handles.length;i++) if(Math.hypot(px-handles[i].x,py-handles[i].y)<12) return i;
+        return -1;
+      }
+
+      // Resize: map all object coords from frozen-BB space to new-BB space.
+      // Dragging handle with anchor (ax,ay):
+      //   ax=0 → move left edge, ax=1 → move right edge, ax=0.5 → both edges shift equally (unused for now)
+      function applyResize(hi, curX, curY) {
+        const h = getHandles(resizeFrozen)[hi]; // anchor from frozen geometry
+        const fbb = resizeFrozenBB;
+        // Outer box used for mapping (= bounding box + SEL_PAD on each side)
+        let ox1=fbb.x-SEL_PAD, oy1=fbb.y-SEL_PAD, ox2=fbb.x+fbb.w+SEL_PAD, oy2=fbb.y+fbb.h+SEL_PAD;
+        let nx1=ox1, ny1=oy1, nx2=ox2, ny2=oy2;
+        if      (h.ax===0)   nx1=curX;
+        else if (h.ax===1)   nx2=curX;
+        if      (h.ay===0)   ny1=curY;
+        else if (h.ay===1)   ny2=curY;
+
+        // Safety: prevent zero/negative size causing explosions
+        if (nx2-nx1 < 4) { if(h.ax===0) nx1=nx2-4; else nx2=nx1+4; }
+        if (ny2-ny1 < 4) { if(h.ay===0) ny1=ny2-4; else ny2=ny1+4; }
+
+        const ow=ox2-ox1, oh=oy2-oy1;
+        const nw=nx2-nx1, nh=ny2-ny1;
+        const mapX = x => ow>0 ? nx1+(x-ox1)/ow*nw : nx1;
+        const mapY = y => oh>0 ? ny1+(y-oy1)/oh*nh : ny1;
+
+        const live=selectedObj, fr=resizeFrozen;
+        if (fr.type==="pen"||fr.type==="marker") {
+          live.points=fr.points.map(p=>({...p,x:mapX(p.x),y:mapY(p.y)}));
+        } else if (fr.type==="mosaic") {
+          live.blocks=fr.blocks.map(b=>({...b,x:mapX(b.x),y:mapY(b.y)}));
+        } else if (fr.type==="text") {
+          live.x1=mapX(fr.x1); live.y1=mapY(fr.y1);
+          const scale=(Math.abs(nw)+Math.abs(nh))/(Math.abs(ow)+Math.abs(oh));
+          live.size=Math.max(1,Math.round(fr.size*scale));
+        } else {
+          live.x1=mapX(fr.x1); live.y1=mapY(fr.y1);
+          live.x2=mapX(fr.x2); live.y2=mapY(fr.y2);
+        }
+      }
+
+      function moveObject(obj, dx, dy) {
+        if(obj.type==="pen"||obj.type==="marker") obj.points.forEach(p=>{p.x+=dx;p.y+=dy;});
+        else if(obj.type==="mosaic") obj.blocks.forEach(b=>{b.x+=dx;b.y+=dy;});
+        else {obj.x1+=dx;obj.y1+=dy;if(obj.x2!=null){obj.x2+=dx;obj.y2+=dy;}}
+      }
+
+      function scaleObjectFromCenter(obj, factor) {
+        const bb=getBoundingBox(obj);
+        const cx=bb.x+bb.w/2, cy=bb.y+bb.h/2;
+        const sp=(x,y)=>({x:cx+(x-cx)*factor,y:cy+(y-cy)*factor});
+        if(obj.type==="pen"||obj.type==="marker") obj.points=obj.points.map(p=>({...p,...sp(p.x,p.y)}));
+        else if(obj.type==="mosaic") obj.blocks=obj.blocks.map(b=>{const p=sp(b.x,b.y);return{...b,x:p.x,y:p.y};});
+        else{const p1=sp(obj.x1,obj.y1);obj.x1=p1.x;obj.y1=p1.y;if(obj.x2!=null){const p2=sp(obj.x2,obj.y2);obj.x2=p2.x;obj.y2=p2.y;}}
+      }
+
+      // ── Drawing ──
+      function drawObject(ctx, obj, isSelected) {
+        ctx.save();
+        const lw=obj.size;
+        ctx.strokeStyle=obj.color; ctx.fillStyle=obj.color;
+        ctx.lineWidth=lw; ctx.lineCap="round"; ctx.lineJoin="round";
+        const dashBase=DASH_MAP[obj.dash]||[];
+        ctx.setLineDash(dashBase.map(v=>v*Math.max(1,lw*0.5)));
+
+        if(obj.type==="arrow"){
+          const dashArr=DASH_MAP[obj.dash]||[];
+          ctx.setLineDash(dashArr.map(v=>v*Math.max(1,lw*0.5)));
+          const angle=Math.atan2(obj.y2-obj.y1,obj.x2-obj.x1), headLen=Math.max(14,lw*5);
+          ctx.beginPath(); ctx.moveTo(obj.x1,obj.y1); ctx.lineTo(obj.x2,obj.y2); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(obj.x2,obj.y2);
+          ctx.lineTo(obj.x2-headLen*Math.cos(angle-Math.PI/6),obj.y2-headLen*Math.sin(angle-Math.PI/6));
+          ctx.lineTo(obj.x2-headLen*Math.cos(angle+Math.PI/6),obj.y2-headLen*Math.sin(angle+Math.PI/6));
+          ctx.closePath(); ctx.fill();
+        } else if(obj.type==="line"){
+          ctx.beginPath(); ctx.moveTo(obj.x1,obj.y1); ctx.lineTo(obj.x2,obj.y2); ctx.stroke();
+        } else if(obj.type==="rect"){
+          ctx.strokeRect(obj.x1,obj.y1,obj.x2-obj.x1,obj.y2-obj.y1);
+        } else if(obj.type==="circle"){
+          const rx=Math.abs(obj.x2-obj.x1)/2,ry=Math.abs(obj.y2-obj.y1)/2;
+          ctx.beginPath(); ctx.ellipse((obj.x1+obj.x2)/2,(obj.y1+obj.y2)/2,rx,ry,0,0,Math.PI*2); ctx.stroke();
+        } else if(obj.type==="pen"||obj.type==="marker"){
+          if(obj.type==="marker"){ctx.globalAlpha=0.38;ctx.lineWidth=lw*6;ctx.setLineDash([]);}
+          const pts=obj.points;
+          if(!pts||pts.length===0) { ctx.restore(); return; }
+          if(pts.length===1){
+            ctx.beginPath();
+            ctx.arc(pts[0].x,pts[0].y,(obj.type==="marker"?lw*3:lw/2),0,Math.PI*2);
+            ctx.fill();
+          } else if(obj.type==="marker"){
+            // Marker: uniform thick smooth curve
+            ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+            for(let i=1;i<pts.length;i++){
+              const prev=pts[i-1], cur=pts[i];
+              const next=pts[i+1]||cur;
+              const cpx=(prev.x+cur.x)/2, cpy=(prev.y+cur.y)/2;
+              const cp2x=(cur.x+next.x)/2, cp2y=(cur.y+next.y)/2;
+              ctx.bezierCurveTo(cpx,cpy,cp2x,cp2y,cur.x,cur.y);
+            }
+            ctx.stroke();
+          } else {
+            // Pen: pressure-sensitive filled polygon outline (no segment-join bumps)
+            ctx.setLineDash([]);
+            // Build smooth spine via Catmull-Rom → Bezier, then offset left/right by half-width
+            // to create a filled shape instead of stroked segments
+            const n=pts.length;
+            // Get tangent vectors and widths at each point
+            const ws=pts.map(p=>Math.max(0.5, lw*(0.35+0.65*(p.p??0.5))));
+            // Generate the centerline polyline as Catmull-Rom evaluated at fine steps
+            const steps=3; // sub-steps between each pair of input points
+            const spline=[]; // {x,y,w} fine-resolution spine
+            for(let i=0;i<n-1;i++){
+              const p0=pts[Math.max(0,i-1)];
+              const p1=pts[i];
+              const p2=pts[i+1];
+              const p3=pts[Math.min(n-1,i+2)];
+              const w1=ws[i], w2=ws[i+1];
+              for(let s=0;s<=steps;s++){
+                const t=s/steps;
+                // Catmull-Rom
+                const t2=t*t, t3=t2*t;
+                const x=0.5*((2*p1.x)+(-p0.x+p2.x)*t+(2*p0.x-5*p1.x+4*p2.x-p3.x)*t2+(-p0.x+3*p1.x-3*p2.x+p3.x)*t3);
+                const y=0.5*((2*p1.y)+(-p0.y+p2.y)*t+(2*p0.y-5*p1.y+4*p2.y-p3.y)*t2+(-p0.y+3*p1.y-3*p2.y+p3.y)*t3);
+                const w=w1+(w2-w1)*t;
+                spline.push({x,y,w});
+              }
+            }
+            spline.push({x:pts[n-1].x,y:pts[n-1].y,w:ws[n-1]});
+            if(spline.length<2){ ctx.restore(); return; }
+            // Compute per-point normals along the spine
+            const left=[], right=[];
+            for(let i=0;i<spline.length;i++){
+              const prev=spline[Math.max(0,i-1)];
+              const next=spline[Math.min(spline.length-1,i+1)];
+              let dx=next.x-prev.x, dy=next.y-prev.y;
+              const len=Math.sqrt(dx*dx+dy*dy)||1;
+              dx/=len; dy/=len;
+              // Normal: rotate 90°
+              const nx=-dy, ny=dx;
+              const hw=spline[i].w/2;
+              left.push({x:spline[i].x+nx*hw, y:spline[i].y+ny*hw});
+              right.push({x:spline[i].x-nx*hw, y:spline[i].y-ny*hw});
+            }
+            // Draw filled shape: left side forward, right side backward, rounded caps
+            ctx.beginPath();
+            // Start cap (semicircle)
+            const s0=spline[0], hw0=s0.w/2;
+            ctx.arc(s0.x,s0.y,hw0,Math.atan2(left[0].y-s0.y,left[0].x-s0.x),Math.atan2(right[0].y-s0.y,right[0].x-s0.x));
+            // Left side
+            ctx.moveTo(left[0].x,left[0].y);
+            for(let i=1;i<left.length;i++) ctx.lineTo(left[i].x,left[i].y);
+            // End cap
+            const sn=spline[spline.length-1], hwn=sn.w/2;
+            ctx.arc(sn.x,sn.y,hwn,Math.atan2(left[left.length-1].y-sn.y,left[left.length-1].x-sn.x),Math.atan2(right[right.length-1].y-sn.y,right[right.length-1].x-sn.x));
+            // Right side reversed
+            for(let i=right.length-1;i>=0;i--) ctx.lineTo(right[i].x,right[i].y);
+            ctx.closePath();
+            ctx.fill();
+          }
+        } else if(obj.type==="text"){
+          const fs=obj.size*8+10; ctx.setLineDash([]);
+          ctx.font=`bold ${fs}px 'Segoe UI',sans-serif`;
+          ctx.shadowColor="transparent"; ctx.shadowBlur=0;
+          ctx.fillText(obj.text||"",obj.x1,obj.y1+fs);
+        } else if(obj.type==="mosaic"){
+          ctx.setLineDash([]); ctx.globalAlpha=1;
+          obj.blocks?.forEach(b=>{ctx.fillStyle=b.color;ctx.fillRect(b.x,b.y,lw*8,lw*8);});
+        }
+
+        if(isSelected){
+          ctx.restore(); ctx.save();
+          const bb=getBoundingBox(obj);
+          // Selection outline
+          ctx.setLineDash([5,4]); ctx.strokeStyle="rgba(79,158,255,0.85)"; ctx.lineWidth=1.5;
+          ctx.strokeRect(bb.x-SEL_PAD,bb.y-SEL_PAD,bb.w+SEL_PAD*2,bb.h+SEL_PAD*2);
+          // Handles
+          ctx.setLineDash([]);
+          getHandles(obj).forEach(h=>{
+            ctx.fillStyle="white"; ctx.beginPath(); ctx.arc(h.x,h.y,5,0,Math.PI*2); ctx.fill();
+            ctx.strokeStyle="rgba(79,158,255,0.9)"; ctx.lineWidth=1.5; ctx.stroke();
+          });
+        }
+        ctx.restore();
+      }
+
+      function redrawAll() {
+        annotCtx.clearRect(0,0,annotCanvas.width,annotCanvas.height);
+        annotObjects.forEach(obj=>drawObject(annotCtx,obj,obj===selectedObj));
+        // Don't draw editingTextObj on canvas while textOverlay div is showing —
+        // that causes a ghost/double shadow. Only draw a faint position marker.
+        if(editingTextObj){
+          annotCtx.save();
+          annotCtx.setLineDash([4,3]);
+          annotCtx.strokeStyle="rgba(79,158,255,0.5)";
+          annotCtx.lineWidth=1;
+          const fs=editingTextObj.size*8+10;
+          const tw=Math.max(60, annotCtx.measureText(editingTextObj.text||" ").width);
+          annotCtx.strokeRect(editingTextObj.x1-2, editingTextObj.y1-2, tw+12, fs*1.4+4);
+          annotCtx.restore();
+        }
+      }
+
+      function findObjectAt(x,y){
+        for(let i=annotObjects.length-1;i>=0;i--) if(hitTest(annotObjects[i],x,y)) return annotObjects[i];
+        return null;
+      }
+
+      function sampleMosaicColor(){const v=()=>Math.floor(Math.random()*60+80);return `rgba(${v()},${v()},${v()},0.85)`;}
+
+      // ── Text overlay ──
+      const textOverlay = document.createElement("div");
+      textOverlay.contentEditable="true"; textOverlay.spellcheck=false;
+      textOverlay.style.cssText="position:fixed;z-index:30;min-width:40px;max-width:600px;padding:4px 8px;background:transparent;border:1.5px dashed rgba(79,158,255,0.8);border-radius:4px;outline:none;font-family:'Segoe UI',sans-serif;font-weight:bold;white-space:pre;line-height:1.3;cursor:text;display:none;caret-color:white;color:white";
+      document.body.appendChild(textOverlay);
+      const textInputEl = getEl("textInput");
+      if(textInputEl) textInputEl.style.display="none";
+
+      function startTextEdit(existing){
+        // existing must already be IN annotObjects (or will be added by caller)
+        commitTextEdit();
+        annotObjects=annotObjects.filter(o=>o!==existing); // remove while editing
+        editingTextObj=existing;
+        selectedObj=null;
+        const fs=existing.size*8+10;
+        textOverlay.style.display="block";
+        textOverlay.style.fontSize=fs+"px";
+        textOverlay.style.color=existing.color;
+        textOverlay.style.left=Math.min(existing.x1, window.innerWidth-120)+"px";
+        textOverlay.style.top=(existing.y1-4)+"px";
+        textOverlay.textContent=existing.text||"";
+        requestAnimationFrame(()=>{
+          textOverlay.focus();
+          const r=document.createRange(); r.selectNodeContents(textOverlay); r.collapse(false);
+          window.getSelection().removeAllRanges(); window.getSelection().addRange(r);
+          if(editingTextObj){ editingTextObj.text=textOverlay.textContent; redrawAll(); }
+        });
+      }
+      function commitTextEdit(){
+        if(!editingTextObj) return;
+        const txt=textOverlay.textContent.trim();
+        const obj=editingTextObj;
+        editingTextObj=null;
+        textOverlay.style.display="none"; textOverlay.textContent="";
+        if(txt){
+          obj.text=txt;
+          if(!annotObjects.includes(obj)){ saveHistory(); annotObjects.push(obj); }
+          selectedObj=obj; // re-select after commit so user can move/resize
+        } else {
+          annotObjects=annotObjects.filter(o=>o!==obj);
+          selectedObj=null;
+        }
+        redrawAll();
+      }
+      textOverlay.addEventListener("input",()=>{ if(editingTextObj){ editingTextObj.text=textOverlay.textContent; redrawAll(); } });
+      textOverlay.addEventListener("keydown",(e)=>{
+        e.stopPropagation();
+        if(e.key==="Escape"){ editingTextObj=null; textOverlay.style.display="none"; textOverlay.textContent=""; redrawAll(); }
+        if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); commitTextEdit(); }
+      });
+      textOverlay.addEventListener("blur",()=>setTimeout(commitTextEdit,150));
+
+      // ── Mouse handlers ──
+      annotCanvas.addEventListener("pointerdown",(e)=>{
+        if(!annotEnabled) return;
+        e.stopPropagation();
+        e.preventDefault();
+        // Capture pointer so all subsequent move/up events come to this canvas
+        // even if the stylus drifts outside — and blocks OS scroll gestures
+        if(e.pointerId != null) annotCanvas.setPointerCapture(e.pointerId);
+        const x=e.clientX, y=e.clientY;
+        if(editingTextObj){ commitTextEdit(); return; }
+
+        // 1. Active selection: handle → resize; body → move; outside → deselect
+        if(selectedObj){
+          const hi=hitHandle(selectedObj,x,y);
+          if(hi>=0){
+            resizingHandle=hi;
+            resizeFrozen=JSON.parse(JSON.stringify(selectedObj));
+            resizeFrozenBB=getBoundingBox(resizeFrozen);
+            saveHistory(); return;
+          }
+          if(hitTest(selectedObj,x,y)){
+            if(e.detail===2 && selectedObj.type==="text"){ startTextEdit(selectedObj); return; }
+            dragging=true; dragOffX=x; dragOffY=y; return;
+          }
+          // Click outside selection → deselect
+          selectedObj=null; redrawAll();
+          // Brush tools immediately start a new stroke; shape/text tools wait for next click
+          if(!["pen","marker","eraser","mosaic"].includes(annotTool)) return;
+        }
+
+        // 2. Hit test — for shape/text/arrow tools, click on existing obj selects it
+        //    Brush tools skip this — they always draw
+        const isBrushTool = ["pen","marker","eraser","mosaic"].includes(annotTool);
+        if(!isBrushTool){
+          const hit=findObjectAt(x,y);
+          if(hit){
+            if(e.detail===2 && hit.type==="text"){ startTextEdit(hit); return; }
+            selectedObj=hit; dragging=true; dragOffX=x; dragOffY=y;
+            redrawAll(); return;
+          }
+        }
+
+        // 3. Empty canvas click — text tool creates new obj, shapes start drawing
+        if(annotTool==="text"){
+          const newObj={type:"text",x1:x,y1:y,color:annotColor,size:annotSize,dash:annotDash,text:""};
+          annotObjects.push(newObj);
+          startTextEdit(newObj);
+          return;
+        }
+        annotDrawing=true; annotStartX=x; annotStartY=y;
+        const pressure = (e.pressure > 0) ? e.pressure : 0.5;
+        if(annotTool==="pen"||annotTool==="marker"){
+          saveHistory();
+          annotObjects.push({type:annotTool,color:annotColor,size:annotSize,dash:annotDash,points:[{x,y,p:pressure}]});
+          selectedObj=null;
+        } else if(annotTool==="eraser"){
+          // Eraser: delete any object touched — saveHistory once at stroke start
+          saveHistory();
+          const hit=findObjectAt(x,y);
+          if(hit){ annotObjects=annotObjects.filter(o=>o!==hit); redrawAll(); }
+        } else if(annotTool==="mosaic"){
+          // Mosaic: rect drag — just start, blocks created on pointerup
+          saveHistory();
+          selectedObj=null;
+          // Draw live preview on move (no annotObjects entry yet)
+          redrawAll();
+        }
+      });
+
+      // Helper: fill mosaic blocks in a rectangle
+      function fillMosaicRect(x1,y1,x2,y2,bs){
+        const blocks=[];
+        const lx=Math.min(x1,x2), rx=Math.max(x1,x2), ty=Math.min(y1,y2), by2=Math.max(y1,y2);
+        for(let bx=Math.floor(lx/bs)*bs; bx<rx; bx+=bs)
+          for(let by=Math.floor(ty/bs)*bs; by<by2; by+=bs)
+            blocks.push({x:bx,y:by,color:sampleMosaicColor()});
+        return blocks;
+      }
+
+      annotCanvas.addEventListener("pointermove",(e)=>{
+        if(!annotEnabled) return;
+        e.preventDefault();
+        const x=e.clientX, y=e.clientY;
+
+        if(resizingHandle>=0&&selectedObj){
+          applyResize(resizingHandle,x,y);
+          redrawAll(); return;
+        }
+        if(dragging&&selectedObj){
+          moveObject(selectedObj,x-dragOffX,y-dragOffY);
+          dragOffX=x; dragOffY=y;
+          redrawAll(); return;
+        }
+
+        // Cursor
+        if(selectedObj){
+          const hi=hitHandle(selectedObj,x,y);
+          if(hi>=0) annotCanvas.style.cursor=HANDLE_CURSORS[hi];
+          else if(hitTest(selectedObj,x,y)) annotCanvas.style.cursor="move";
+          else annotCanvas.style.cursor="crosshair";
+        } else if(annotTool==="text"){
+          annotCanvas.style.cursor="text";
+        } else if(annotTool==="eraser"){
+          annotCanvas.style.cursor = makeEraserCursor(annotSize * 3);
+        } else {
+          annotCanvas.style.cursor="crosshair";
+        }
+
+        if(!annotDrawing) return;
+        const pressure = (e.pressure > 0) ? e.pressure : 0.5;
+        if(annotTool==="pen"||annotTool==="marker"){
+          const last=annotObjects[annotObjects.length-1];
+          if(!last) return;
+          last.points.push({x,y,p:pressure});
+          // Incremental draw: only re-render the last few points onto the canvas
+          // instead of clearing and redrawing everything — avoids spline recompute lag
+          if(annotTool==="marker"){
+            const pts=last.points, n=pts.length;
+            if(n>=2){
+              annotCtx.save();
+              annotCtx.strokeStyle=last.color; annotCtx.fillStyle=last.color;
+              annotCtx.globalAlpha=0.38; annotCtx.lineWidth=last.size*6;
+              annotCtx.lineCap="round"; annotCtx.lineJoin="round"; annotCtx.setLineDash([]);
+              annotCtx.beginPath();
+              const i=Math.max(1,n-3);
+              annotCtx.moveTo(pts[i-1].x,pts[i-1].y);
+              for(let j=i;j<n;j++){
+                if(j<n-1){const mx=(pts[j].x+pts[j+1].x)/2,my=(pts[j].y+pts[j+1].y)/2;annotCtx.quadraticCurveTo(pts[j].x,pts[j].y,mx,my);}
+                else annotCtx.lineTo(pts[j].x,pts[j].y);
+              }
+              annotCtx.stroke();
+              annotCtx.restore();
+            }
+          } else {
+            // Pen: incremental filled circle at tip + narrow connecting segment
+            // Full smooth redraw scheduled after stroke ends; during drawing use fast preview
+            const pts=last.points, n=pts.length;
+            if(n>=2){
+              const p0=pts[n-2], p1=pts[n-1];
+              const w0=Math.max(0.5,last.size*(0.35+0.65*(p0.p??0.5)));
+              const w1=Math.max(0.5,last.size*(0.35+0.65*(p1.p??0.5)));
+              annotCtx.save();
+              annotCtx.strokeStyle=last.color; annotCtx.fillStyle=last.color;
+              annotCtx.lineCap="round"; annotCtx.lineJoin="round"; annotCtx.setLineDash([]);
+              // Draw a tapered capsule between the two points
+              const dx=p1.x-p0.x, dy=p1.y-p0.y;
+              const len=Math.sqrt(dx*dx+dy*dy)||1;
+              const nx=-dy/len, ny=dx/len; // normal
+              annotCtx.beginPath();
+              annotCtx.moveTo(p0.x+nx*w0/2, p0.y+ny*w0/2);
+              annotCtx.lineTo(p1.x+nx*w1/2, p1.y+ny*w1/2);
+              annotCtx.arc(p1.x,p1.y,w1/2, Math.atan2(ny,nx), Math.atan2(-ny,-nx));
+              annotCtx.lineTo(p0.x-nx*w0/2, p0.y-ny*w0/2);
+              annotCtx.arc(p0.x,p0.y,w0/2, Math.atan2(-ny,-nx), Math.atan2(ny,nx));
+              annotCtx.closePath();
+              annotCtx.fill();
+              annotCtx.restore();
+            }
+          }
+        } else if(annotTool==="eraser"){
+          const before = annotObjects.length;
+          annotObjects = annotObjects.filter(o => !hitTest(o, x, y));
+          if(annotObjects.length !== before) redrawAll();
+        } else if(annotTool==="mosaic"){
+          // Show live rect preview
+          annotCtx.clearRect(0,0,annotCanvas.width,annotCanvas.height);
+          annotObjects.forEach(o=>drawObject(annotCtx,o,o===selectedObj));
+          // Preview mosaic blocks
+          const bs=annotSize*8;
+          const blocks=fillMosaicRect(annotStartX,annotStartY,x,y,bs);
+          annotCtx.save();
+          blocks.forEach(b=>{annotCtx.fillStyle=b.color;annotCtx.fillRect(b.x,b.y,bs,bs);});
+          // Draw selection rect outline
+          annotCtx.setLineDash([4,3]);
+          annotCtx.strokeStyle="rgba(255,255,255,0.7)";
+          annotCtx.lineWidth=1.5;
+          annotCtx.strokeRect(Math.min(annotStartX,x),Math.min(annotStartY,y),Math.abs(x-annotStartX),Math.abs(y-annotStartY));
+          annotCtx.restore();
+        } else if(["arrow","line","rect","circle"].includes(annotTool)){
+          annotCtx.clearRect(0,0,annotCanvas.width,annotCanvas.height);
+          annotObjects.forEach(o=>drawObject(annotCtx,o,o===selectedObj));
+          drawObject(annotCtx,{type:annotTool,color:annotColor,size:annotSize,dash:annotDash,x1:annotStartX,y1:annotStartY,x2:x,y2:y},false);
+        }
+      });
+
+      annotCanvas.addEventListener("pointerup",(e)=>{
+        if(!annotEnabled) return;
+        e.stopPropagation();
+        const x=e.clientX, y=e.clientY;
+        if(resizingHandle>=0){resizingHandle=-1;resizeFrozen=null;resizeFrozenBB=null;redrawAll();return;}
+        if(dragging){dragging=false;return;}
+        if(!annotDrawing) return;
+        annotDrawing=false;
+        // Pen/marker: full clean spline redraw to replace the incremental preview
+        if(annotTool==="pen"||annotTool==="marker"){ redrawAll(); return; }
+        if(annotTool==="mosaic"){
+          const bs=annotSize*8;
+          const blocks=fillMosaicRect(annotStartX,annotStartY,x,y,bs);
+          if(blocks.length){
+            const obj={type:"mosaic",size:annotSize,blocks};
+            annotObjects.push(obj); selectedObj=obj;
+          }
+          redrawAll(); return;
+        }
+        if(["arrow","line","rect","circle"].includes(annotTool)){
+          if(Math.abs(x-annotStartX)<3&&Math.abs(y-annotStartY)<3){redrawAll();return;}
+          saveHistory();
+          const obj={type:annotTool,color:annotColor,size:annotSize,dash:annotDash,x1:annotStartX,y1:annotStartY,x2:x,y2:y};
+          annotObjects.push(obj); selectedObj=obj; redrawAll();
+        }
+      });
+
+      annotCanvas.addEventListener("pointerleave",()=>{annotDrawing=false;});
+      annotCanvas.addEventListener("dblclick",(e)=>{
+        if(!annotEnabled) return;
+        for(let i=annotObjects.length-1;i>=0;i--){
+          if(annotObjects[i].type==="text"&&hitTest(annotObjects[i],e.clientX,e.clientY)){
+            startTextEdit(annotObjects[i]); return;
+          }
+        }
+      });
+
+
+      // ============================================================
+      // IMAGE EDIT STATE
+      // ============================================================
+      let editState = { brightness: 0, contrast: 0, saturation: 0, blur: 0, flipH: false, flipV: false, rotation: 0 };
+
+      function buildFilterString() {
+        const b = editState.brightness, c = editState.contrast, s = editState.saturation, bl = editState.blur;
+        return `brightness(${1 + b/100}) contrast(${1 + c/100}) saturate(${1 + s/100}) blur(${bl}px)`;
+      }
+      function applyEditToZoom() {
+        if (!zoom) return;
+        zoom.style.filter = buildFilterString();
+        let t = "";
+        if (editState.flipH) t += " scaleX(-1)";
+        if (editState.flipV) t += " scaleY(-1)";
+        if (editState.rotation) t += ` rotate(${editState.rotation}deg)`;
+        zoom.style.transform = t || "none";
+      }
+      function resetEdit() {
+        editState = { brightness: 0, contrast: 0, saturation: 0, blur: 0, flipH: false, flipV: false, rotation: 0 };
+        ["Brightness","Contrast","Saturation","Blur"].forEach(k => {
+          getEl("sl"+k).value = 0;
+          getEl("val"+k).innerText = 0;
+        });
+        applyEditToZoom();
+      }
+
+      ["Brightness","Contrast","Saturation","Blur"].forEach(k => {
+        getEl("sl"+k).addEventListener("input", (e) => {
+          editState[k.toLowerCase()] = +e.target.value;
+          getEl("val"+k).innerText = e.target.value;
+          applyEditToZoom();
+        });
+      });
+
+      getEl("btnFlipH").addEventListener("click", () => { editState.flipH = !editState.flipH; applyEditToZoom(); });
+      getEl("btnFlipV").addEventListener("click", () => { editState.flipV = !editState.flipV; applyEditToZoom(); });
+      getEl("btnRotate").addEventListener("click", () => { editState.rotation = (editState.rotation + 90) % 360; applyEditToZoom(); });
+      getEl("btnResetEdit").addEventListener("click", resetEdit);
+
+      // ============================================================
+      // MODE SYSTEM: browse vs edit
+      // ============================================================
+      const floatToolbar = getEl("floatToolbar");
+      const toolPanel = getEl("toolPanel");
+      const editPanel = getEl("editPanel");
+      const editModeBtn = getEl("editModeBtn");
+      let isEditMode = false;
+      let editPanelOpen = false;
+
+      function enterEditMode() {
+        isEditMode = true;
+        floatToolbar.classList.add("edit-mode");
+        editModeBtn.classList.add("active");
+        editModeBtn.dataset.tip = "退出编辑 (E)";
+        showAnnotCanvas();
+        // Hide nav arrows in edit mode
+        previmg.style.display = "none";
+        nextimg.style.display = "none";
+        cover.style.cursor = "default";
+        // Isolate: prevent stylus/touch from scrolling the page behind
+        document.body.style.overflow = "hidden";
+        document.body.style.touchAction = "none";
+        cover.style.touchAction = "none";
+      }
+
+      function exitEditMode() {
+        isEditMode = false;
+        floatToolbar.classList.remove("edit-mode");
+        editModeBtn.classList.remove("active");
+        editModeBtn.dataset.tip = "进入编辑模式 (E)";
+        editPanelOpen = false;
+        editPanel.classList.remove("open");
+        setTimeout(() => { if (!editPanelOpen) editPanel.style.display = "none"; }, 200);
+        getEl("toolEdit").classList.remove("active");
+        commitTextEdit();
+        hideAnnotCanvas();
+        previmg.style.display = "";
+        nextimg.style.display = "";
+        cover.style.cursor = "";
+        // Restore scroll
+        document.body.style.overflow = "";
+        document.body.style.touchAction = "";
+        cover.style.touchAction = "";
+      }
+
+      editModeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (isEditMode) exitEditMode(); else enterEditMode();
+      });
+
+      // Exit edit btn inside toolbar
+      getEl("toolExitEdit").addEventListener("click", (e) => { e.stopPropagation(); exitEditMode(); });
+
+      // Make toolbar draggable by its panel
+      let tbDragging = false, tbStartX, tbStartY, tbOrigX, tbOrigY, tbMoved = false;
+      toolPanel.addEventListener("mousedown", (e) => {
+        // Only drag from empty space (not buttons)
+        if (e.target !== toolPanel) return;
+        if (e.button !== 0) return;
+        tbDragging = true; tbMoved = false;
+        tbStartX = e.clientX; tbStartY = e.clientY;
+        const rect = floatToolbar.getBoundingClientRect();
+        tbOrigX = rect.left; tbOrigY = rect.top;
+        e.preventDefault();
+      });
+      document.addEventListener("mousemove", (e) => {
+        if (!tbDragging) return;
+        const dx = e.clientX - tbStartX, dy = e.clientY - tbStartY;
+        if (Math.abs(dx) > 4 || Math.abs(dy) > 4) tbMoved = true;
+        if (!tbMoved) return;
+        floatToolbar.style.right = "auto";
+        floatToolbar.style.left = (tbOrigX + dx) + "px";
+        floatToolbar.style.top = (tbOrigY + dy) + "px";
+        floatToolbar.style.transform = "none";
+        e.preventDefault();
+      });
+      document.addEventListener("mouseup", (e) => {
+        if (tbDragging && e.button === 0) tbDragging = false;
+      });
+
+      // ── Dynamic eraser cursor ──
+      function makeEraserCursor(radius) {
+        const r = Math.max(4, radius);
+        const size = (r + 3) * 2;
+        const cv = document.createElement("canvas");
+        cv.width = cv.height = size;
+        const cx2 = cv.getContext("2d");
+        cx2.beginPath();
+        cx2.arc(size/2, size/2, r, 0, Math.PI*2);
+        cx2.strokeStyle = "rgba(255,255,255,0.9)";
+        cx2.lineWidth = 1.5;
+        cx2.stroke();
+        cx2.beginPath();
+        cx2.arc(size/2, size/2, r, 0, Math.PI*2);
+        cx2.strokeStyle = "rgba(0,0,0,0.5)";
+        cx2.lineWidth = 0.5;
+        cx2.setLineDash([3,3]);
+        cx2.stroke();
+        return `url(${cv.toDataURL()}) ${size/2} ${size/2}, crosshair`;
+      }
+      function updateAnnotCursor() {
+        if (!annotEnabled) return;
+        if (annotTool === "eraser") {
+          annotCanvas.style.cursor = makeEraserCursor(annotSize * 3);
+        } else if (annotTool === "text") {
+          annotCanvas.style.cursor = "text";
+        } else {
+          annotCanvas.style.cursor = "crosshair";
+        }
+      }
+      const toolMap = { toolArrow:"arrow", toolPen:"pen", toolLine:"line", toolRect:"rect", toolCircle:"circle", toolText:"text", toolMarker:"marker", toolEraser:"eraser", toolMosaic:"mosaic" };
+      const toolNames = Object.keys(toolMap);
+
+      function setTool(id) {
+        commitTextEdit();
+        selectedObj = null;
+        annotTool = toolMap[id] || "arrow";
+        toolNames.forEach(n => { const el=getEl(n); if(el) el.classList.remove("active"); });
+        const el=getEl(id); if(el) el.classList.add("active");
+        updateAnnotCursor();
+        redrawAll();
+      }
+
+      // ── Tooltip: smart positioning to stay fully on-screen ──
+      const toolTipEl = getEl("toolTip");
+      function showTooltip(btn) {
+        const tip = btn.getAttribute("data-tip");
+        if (!tip) return;
+        toolTipEl.textContent = tip;
+        toolTipEl.style.display = "block";
+        toolTipEl.style.left = "-9999px";
+        toolTipEl.style.top  = "-9999px";
+        requestAnimationFrame(() => {
+          const br = btn.getBoundingClientRect();
+          const tw = toolTipEl.offsetWidth, th = toolTipEl.offsetHeight;
+          const margin = 6;
+          // Prefer left of the toolbar panel; fall back to right if no room
+          let left = br.left - tw - 10;
+          if (left < margin) left = br.right + 10;
+          // Vertically: align centre to button centre, clamp to viewport
+          let top = br.top + br.height / 2 - th / 2;
+          top = Math.max(margin, Math.min(window.innerHeight - th - margin, top));
+          toolTipEl.style.left = left + "px";
+          toolTipEl.style.top  = top  + "px";
+        });
+      }
+      document.querySelectorAll("[data-tip]").forEach(btn => {
+        btn.addEventListener("mouseenter", () => showTooltip(btn));
+        btn.addEventListener("mouseleave", () => { toolTipEl.style.display = "none"; });
+        btn.addEventListener("mousedown",  () => { toolTipEl.style.display = "none"; });
+      });
+
+      toolNames.forEach(id => {
+        getEl(id)?.addEventListener("click", (e) => { e.stopPropagation(); setTool(id); });
+      });
+      getEl("toolArrow").classList.add("active");
+
+      // Dash style buttons
+      document.querySelectorAll(".dash-btn").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          document.querySelectorAll(".dash-btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          annotDash = btn.dataset.dash;
+          if (selectedObj && !["pen","marker","mosaic","text"].includes(selectedObj.type)) {
+            saveHistory(); selectedObj.dash = annotDash; redrawAll();
+          }
+        });
+      });
+
+      // Color swatches
+      document.querySelectorAll(".color-swatch").forEach(sw => {
+        sw.addEventListener("click", (e) => {
+          e.stopPropagation();
+          document.querySelectorAll(".color-swatch").forEach(s => s.classList.remove("selected"));
+          sw.classList.add("selected");
+          annotColor = sw.dataset.color;
+          if (selectedObj) { saveHistory(); selectedObj.color = annotColor; redrawAll(); }
+        });
+      });
+
+      // Size dots
+      document.querySelectorAll(".size-dot").forEach(dot => {
+        dot.addEventListener("click", (e) => {
+          e.stopPropagation();
+          document.querySelectorAll(".size-dot").forEach(d => d.classList.remove("selected"));
+          dot.classList.add("selected");
+          annotSize = +dot.dataset.size;
+          if (selectedObj) { saveHistory(); selectedObj.size = annotSize; redrawAll(); }
+          updateAnnotCursor(); // update eraser circle size
+        });
+      });
+
+      // Undo / delete / clear
+      getEl("toolUndo").addEventListener("click", (e) => { e.stopPropagation(); undoAnnot(); });
+      getEl("toolDelete").addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (selectedObj) { saveHistory(); annotObjects = annotObjects.filter(o => o !== selectedObj); selectedObj = null; redrawAll(); }
+      });
+      getEl("toolClear").addEventListener("click", (e) => { e.stopPropagation(); clearAnnot(); });
+
+      // Edit panel toggle
+      getEl("toolEdit").addEventListener("click", (e) => {
+        e.stopPropagation();
+        editPanelOpen = !editPanelOpen;
+        if (editPanelOpen) {
+          editPanel.style.display = "block";
+          requestAnimationFrame(() => editPanel.classList.add("open"));
+        } else {
+          editPanel.classList.remove("open");
+          setTimeout(() => { if (!editPanelOpen) editPanel.style.display = "none"; }, 200);
+        }
+        getEl("toolEdit").classList.toggle("active", editPanelOpen);
+      });
+
+      // Copy annotated image
+      getEl("toolCopyAnnot").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!zoom) return;
+        try {
+          const merged = mergeZoomWithAnnotations();
+          merged.toBlob(async (blob) => {
+            await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+            showToast("已复制到剪贴板 ✓");
+          }, "image/png");
+        } catch(err) { showToast("复制失败：" + err.message); }
+      });
+
+      // Save image
+      getEl("toolSave").addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!zoom) return;
+        const merged = mergeZoomWithAnnotations();
+        merged.toBlob((blob) => {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = (zoom.alt || "image") + "_annotated.png";
+          a.click(); URL.revokeObjectURL(a.href);
+          showToast("已保存 ✓");
+        }, "image/png");
+      });
+
+      function mergeZoomWithAnnotations() {
+        // First render all annotations to annotCanvas (without selection highlight)
+        const prev = selectedObj; selectedObj = null; redrawAll(); selectedObj = prev;
+        const out = document.createElement("canvas");
+        const rect = zoom.getBoundingClientRect();
+        out.width = rect.width; out.height = rect.height;
+        const ctx = out.getContext("2d");
+        ctx.save();
+        if (editState.flipH || editState.flipV || editState.rotation) {
+          ctx.translate(out.width/2, out.height/2);
+          if (editState.rotation) ctx.rotate(editState.rotation * Math.PI/180);
+          ctx.scale(editState.flipH ? -1:1, editState.flipV ? -1:1);
+          ctx.translate(-out.width/2, -out.height/2);
+        }
+        ctx.filter = buildFilterString();
+        ctx.drawImage(zoom, 0, 0, out.width, out.height);
+        ctx.restore();
+        ctx.drawImage(annotCanvas, rect.left, rect.top, rect.width, rect.height, 0, 0, out.width, out.height);
+        // Restore with selection
+        redrawAll();
+        return out;
+      }
+
+      // Toast
+      function showToast(msg, duration = 2000) {
+        const t = getEl("toast");
+        t.innerText = msg;
+        t.classList.add("show");
+        setTimeout(() => t.classList.remove("show"), duration);
+      }
+
+      // ============================================================
+      // ORIGINAL FUNCTIONS (with scroll-to-image after close)
+      // ============================================================
+      function initSort() {
+        ["sortby","order","perload"].forEach((id) => {
+          let store = localStorage.getItem(id);
+          let select = getEl(id);
+          if (store) select.value = store;
+          select.onchange = (e) => localStorage.setItem(id, e.target.value);
+        });
+      }
+      function initFilt() {
+        ["filtmono","filtborder","revert"].forEach((id) => {
+          let store = localStorage.getItem(id);
+          let button = getEl(id);
+          button.active = store === "true";
+          if (button.active) button.classList.add("active");
+          button.onclick = (e) => {
+            let button = e.target;
+            button.classList.toggle("active");
+            button.active = button.classList.contains("active");
+            localStorage.setItem(button.id, button.active);
+            if (!filtmono.active && !filtborder.active && revert.active) return;
+            reflow();
+          };
+        });
+      }
+      function initFlex() {
+        let store = localStorage.getItem("flextype");
+        flextype = store !== null ? store : enums.colflex;
+        getEl(flextype).classList.add("active");
+        imgbox.className = flextype;
+        ["colflex","rowflex"].forEach((id, i, arr) => {
+          let el = getEl(id);
+          el.onclick = (e) => {
+            let button = e.target;
+            if (flextype === button.id) return;
+            flextype = button.id;
+            localStorage.setItem("flextype", flextype);
+            imgbox.className = flextype;
+            arr.forEach((el) => getEl(el).classList.remove("active"));
+            button.classList.add("active");
+            reflow();
+          };
+        });
+      }
+      function initConfig(id) {
+        let input = getEl(id + "input");
+        input.oninput = (e) => (getEl(id).innerText = e.target.value);
+        input.onchange = (e) => {
+          let val = e.target.value;
+          configs[id] = val;
+          docEl.style.setProperty("--" + id, val + "px");
+          localStorage.setItem(id, val);
+        };
+        let store = localStorage.getItem(id);
+        if (store) input.value = store;
+        input.onchange({ target: input });
+        input.oninput({ target: input });
+      }
+
+      document.ondrop = async (e) => {
+        if (e.dataTransfer.types[0] !== "Files") return;
+        e.preventDefault();
+        let items = [...e.dataTransfer.items].map((item) => item.getAsFileSystemHandle());
+        initLoad();
+        await handle(items);
+        if (sortby.value !== enums.default || order.value !== enums.asc) reflow();
+      };
+      document.onpaste = async (e) => {
+        const clipItems = e.clipboardData?.items;
+        if (!clipItems) return;
+        const itemList = [...clipItems];
+
+        // Check for raw image data first (screenshot / copy from browser)
+        const imageItem = itemList.find(i => i.kind === "file" && i.type.startsWith("image/"));
+        if (imageItem) {
+          e.preventDefault();
+          const blob = imageItem.getAsFile();
+          if (!blob) return;
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const dataUrl = ev.target.result;
+            const img = new Image();
+            img.onload = () => {
+              const hintEl = getEl("hint");
+              if (hintEl) hintEl.style.display = "none";
+              docEl.style.setProperty("--opacity", "0");
+              if (flextype === enums.colflex && imgcols.length === 0) {
+                for (let _ of Array(parseInt(colcountinput.value))) {
+                  const col = newEl("div"); col.className = "imgcol";
+                  col.onmouseout = addInfo; imgcols.push(col);
+                }
+                imgbox.replaceChildren(...imgcols);
+                minCol = imgcols[0];
+              }
+              const fname = `paste_${Date.now()}.png`;
+              const fakeFile = new File([blob], fname, { type: blob.type });
+              fakeFile.index = ++totalcount.value;
+              fakeFile.path = fname; fakeFile.dir = "";
+              fakeFile.lastModifiedDate = new Date(fakeFile.lastModified);
+              img.index = fakeFile.index; img.alt = fname; img.path = fname;
+              totalcount.innerText = totalcount.value;
+              loadedcount.innerText = ++loadedcount.value;
+              showcount.innerText = ++showcount.value;
+              const wrap = newEl("div"); wrap.className = "wrap";
+              wrap.appendChild(img); wrap.id = "img" + showcount.value; wrap.index = showcount.value;
+              allData.set(fname, { file: fakeFile, img, wrap });
+              imgObs.observe(wrap);
+              if (flextype === enums.colflex) {
+                minCol = imgcols.reduce((a, b) => a.offsetHeight <= b.offsetHeight ? a : b);
+                minCol.appendChild(wrap);
+              } else { resize(wrap); imgbox.appendChild(wrap); }
+              showToast("已粘贴图片 ✓");
+            };
+            img.onerror = () => showToast("粘贴失败：图片无法渲染");
+            img.src = dataUrl;
+          };
+          reader.onerror = () => showToast("粘贴失败：无法读取数据");
+          reader.readAsDataURL(blob);
+          return;
+        }
+
+        // Fall back to filesystem handles (folder drag-drop)
+        if (e.clipboardData.types.includes("Files")) {
+          const fsItems = itemList.filter(i => i.kind === "file");
+          const hasHandle = fsItems.some(i => typeof i.getAsFileSystemHandle === "function");
+          if (hasHandle) {
+            let items = fsItems.map(i => i.getAsFileSystemHandle());
+            initLoad();
+            await handle(items);
+            if (sortby.value !== enums.default || order.value !== enums.asc) reflow();
+          }
+        }
+      };
+      hint.onclick = async () => {
+        let items = await showDirectoryPicker({ mode: "readwrite", startIn: "pictures" });
+        initLoad();
+        await handle(items.values());
+        if (sortby.value !== enums.default || order.value !== enums.asc) reflow();
+      };
+      function initLoad() {
+        if (loadedcount.value > 0) return;
+        if (sortby.value === enums.default && order.value === enums.asc) reflow();
+        docEl.style.setProperty("--opacity", "0");
+        hint.remove();
+      }
+      async function handle(items, dir = "", folderUl = dirtree.children[0]) {
+        for await (let item of items) {
+          let name = item.name, path = dir + "/" + name;
+          if (allData.has(path)) continue;
+          if (item.kind === "directory") {
+            dircount++;
+            let val = totalcount.value, index = val + dircount;
+            let li = newEl("li"); li.innerText = name; li.id = "li"+index; li.index = index;
+            folderUl.appendChild(li);
+            let ul = newEl("ul"); folderUl.appendChild(ul);
+            toLoad.push(path); allData.set(path, index);
+            await handle(item.values(), path, ul);
+            if (val === totalcount.value) { li.style.display = "none"; ul.style.display = "none"; }
+          }
+          if (item.kind === "file") {
+            let file = await item.getFile();
+            if (!file.type.match(/image.*/)) continue;
+            totalcount.value++;
+            file.dir = dir; file.path = path; file.index = totalcount.value + dircount;
+            allData.set(path, { file }); toLoad.push(path);
+            totalcount.innerText = totalcount.value;
+          }
+        }
+      }
+      function reflow(index = 0) {
+        if (!filtmono.active && !filtborder.active && revert.active) return;
+        imgbox.querySelectorAll(".mark").forEach((el) => el.remove());
+        minCol = imgbox; marks = []; visImgs.clear(); imgcols = [];
+        if (flextype === enums.colflex) {
+          for (let _ of Array(parseInt(colcountinput.value))) {
+            let imgcol = newEl("div"); imgcol.className = "imgcol"; imgcols.push(imgcol); imgcol.onmouseout = addInfo;
+          }
+        }
+        imgbox.replaceChildren(...imgcols);
+        loading = 0;
+        if (showcount.value > 0) {
+          toLoad.getters.forEach((rsv) => rsv());
+          toLoad.items = [...allData.keys()];
+          showcount.value = 0;
+        }
+        if (index > 0) toLoad.items = toLoad.items.slice(index);
+        let key = sortby.value;
+        if (key !== enums.default)
+          toLoad.items = toLoad.items.filter((p) => typeof allData.get(p) === "object").sort((a, b) => allData.get(a).file[key] - allData.get(b).file[key]);
+        if (order.value === enums.desc) toLoad.items.reverse();
+        loadNext();
+      }
+      async function loadNext() {
+        if (loading > 0 || (!loadingAll && docEl.scrollTop + docEl.clientHeight < minCol.scrollHeight - docEl.clientHeight)) return;
+        for (let _ of Array(parseInt(perload.value))) {
+          let path = await toLoad.shift();
+          if (!path) return;
+          let data = allData.get(path);
+          if (typeof data === "number") {
+            let mark = newEl("div"); mark.index = data; dirObs.observe(mark); marks.push(mark); continue;
+          }
+          let file = data.file, w, h, img;
+          if (maxR) {
+            if (file.width) [w, h] = [file.width, file.height];
+            else { [w, h, img] = await getWH(file); [file.width, file.height] = [w, h]; if (img) data.img = img; }
+            if (h * minR > w + 2 || h * maxR < w - 2) continue;
+          }
+          let wrap = data.wrap;
+          if (wrap) { loadImg(wrap); continue; }
+          let onloaded = () => {
+            URL.revokeObjectURL(img.src);
+            loadedcount.innerText = loadedcount.value++ + 1;
+            let wrap = newEl("div"); wrap.className = "wrap"; wrap.appendChild(img);
+            data.wrap = wrap; loadImg(wrap); loading--; loadNext();
+          };
+          if (data.img) { img = data.img; onloaded(); } else {
+            img = new Image(); data.img = img; loading++;
+            img.onload = onloaded; img.onerror = onloaded;
+            img.src = URL.createObjectURL(file);
+          }
+          img.index = file.index; img.alt = file.name; img.path = file.path;
+        }
+        setTimeout(loadNext, 0);
+      }
+      function addInfo(e) {
+        let img = e.relatedTarget;
+        if (img?.tagName !== "IMG") return;
+        let wrap = img.parentElement;
+        if (wrap.hasInfo) return;
+        let file = allData.get(img.path).file;
+        let imgInfo = [formatSize(file.size), `${img.naturalWidth}x${img.naturalHeight}`, file.lastModifiedDate.toLocaleString().replaceAll("/","-"), file.name, file.dir];
+        imgInfo = imgInfo.flatMap((t) => { let span = newEl("span"); span.innerText = t; let br = newEl("br"); return [span, br]; });
+        let infoBar = newEl("div"); infoBar.classList.add("info"); infoBar.replaceChildren(...imgInfo);
+        wrap.appendChild(infoBar); wrap.hasInfo = 1;
+      }
+      function loadImg(wrap) {
+        let img = wrap.children[0];
+        if (((filtmono.active && isMono(img)) || (filtborder.active && isMonoBorder(img))) ^ revert.active) return;
+        imgObs.observe(wrap); wrap.removeAttribute("style");
+        showcount.innerText = showcount.value++ + 1;
+        wrap.id = "img" + showcount.value; wrap.index = showcount.value;
+        if (img.index > marks[0]?.index) wrap.appendChild(marks.shift());
+        if (flextype === enums.colflex) {
+          minCol = imgcols.reduce((prev, curr) => prev.offsetHeight <= curr.offsetHeight ? prev : curr);
+          minCol.appendChild(wrap);
+        } else { resize(wrap); imgbox.appendChild(wrap); }
+      }
+      function resize(wrap) {
+        let img = wrap.children[0], ratio = img.naturalWidth / img.naturalHeight;
+        wrap.style.flexBasis = ratio * minheightinput.value + "px";
+        wrap.style.flexGrow = ratio;
+      }
+      function isMonoBorder(img) {
+        if (img.isMonoBorder !== undefined) return img.isMonoBorder;
+        let { ctx, width, height } = getThumb(img);
+        let d = (x, y, w, h) => ctx.getImageData(x, y, w, h).data;
+        let wasd = [...d(0,0,1,height),...d(0,0,width,1),...d(width-1,0,1,height),...d(0,height-1,width,1)];
+        let bns = [];
+        for (let i of range(0, wasd.length, 4)) bns.push(Math.round((wasd[i]+wasd[i+1]+wasd[i+2])/3/4));
+        let counts = bns.reduce((acc, curr) => acc.set(curr, (acc.get(curr)||0)+1), new Map());
+        if (Math.max(...counts.values()) > 0.0625 * wasd.length) { img.isMonoBorder = true; return true; }
+        img.isMonoBorder = false; return false;
+      }
+      function isMono(img) {
+        if (img.isMono !== undefined) return img.isMono;
+        let { ctx, width, height } = getThumb(img);
+        let pixels = width * height, data = ctx.getImageData(0, 0, width, height).data;
+        for (let area of range(0, 4)) {
+          let r=0, g=0, b=0;
+          for (let i of range(area*pixels, (area+1)*pixels, 4)) { r+=data[i]; g+=data[i+1]; b+=data[i+2]; }
+          if (Math.max(r,g,b)-Math.min(r,g,b) > pixels) { img.isMono = false; return false; }
+        }
+        img.isMono = true; return true;
+      }
+      function getThumb(img, l = 100) {
+        let data = allData.get(img.path);
+        if (l === 100) { let thumb = data.thumb; if (thumb) return thumb; }
+        let canvas = newEl("canvas"), ctx = canvas.getContext("2d", { willReadFrequently: true });
+        let wh = [img.naturalWidth, img.naturalHeight], m = Math.max(...wh), r = l / m;
+        wh = wh.map((n) => Math.round(n * r));
+        [canvas.width, canvas.height] = wh;
+        ctx.drawImage(img, 0, 0, ...wh);
+        let thumb = { canvas, ctx, width: wh[0], height: wh[1] };
+        if (l === 100) data.thumb = thumb;
+        return thumb;
+      }
+
+      // ============================================================
+      // ZOOM / COVER — with scroll-to-image after close
+      // ============================================================
+      let currentZoomWrap = null; // track which wrap was opened
+
+      function toggleZoom(e) {
+        let oriimg = e.target;
+        if (oriimg.className === "info") {
+          if (!getSelection().isCollapsed) return;
+          oriimg = oriimg.parentElement.children[0];
+        } else if (oriimg.tagName !== "IMG") return;
+
+        let rep = new Image();
+        rep.id = "rep";
+        rep.width = oriimg.naturalWidth;
+        rep.height = oriimg.naturalHeight;
+        currentZoomWrap = oriimg.parentElement;
+        oriimg.replaceWith(rep);
+        zoom = oriimg;
+        zoom.className = "zoom";
+        zoom.style.top = (docEl.clientHeight - zoom.height) / 2 + "px";
+        zoom.style.left = (docEl.clientWidth - zoom.width) / 2 + "px";
+        zoom.scale = Math.min(docEl.clientHeight/zoom.height, docEl.clientWidth/zoom.width, 1).toFixed(2) - 0.01;
+        zoom.style.scale = zoom.scale;
+        zoom.minscale = zoom.scale;
+        zoom.style.transform = `translateZ(0)`;
+        panOffsetX = 0; panOffsetY = 0; panDragging = false;
+        cover.appendChild(zoom);
+        cover.classList.add("show");
+        cover.focus();
+        // Show edit mode button, hide annot canvas until edit mode
+        editModeBtn.style.display = "flex";
+        hideAnnotCanvas();
+        isEditMode = false;
+        floatToolbar.classList.remove("edit-mode");
+        editModeBtn.classList.remove("active");
+        // Restore nav buttons
+        previmg.style.pointerEvents = ""; previmg.style.opacity = "";
+        nextimg.style.pointerEvents = ""; nextimg.style.opacity = "";
+        applyEditToZoom();
+      }
+      function zoomImg(e) {
+        e.preventDefault();
+        // If in annotation mode with a selected object, resize it instead
+        if (annotEnabled && selectedObj) {
+          const delta = e.deltaY < 0 ? 1 : -1;
+          const types = ["pen","marker","mosaic"];
+          if (types.includes(selectedObj.type)) {
+            saveHistory();
+            selectedObj.size = Math.max(1, Math.min(40, selectedObj.size + delta));
+          } else if (selectedObj.type === "text") {
+            saveHistory();
+            selectedObj.size = Math.max(1, Math.min(20, selectedObj.size + delta));
+          } else {
+            // Scale shape around its center
+            saveHistory();
+            const factor = e.deltaY < 0 ? 1.08 : 0.92;
+            scaleObjectFromCenter(selectedObj, factor);
+          }
+          redrawAll();
+          return;
+        }
+        if ((e.deltaY < 0 && zoom.scale > 4) || (e.deltaY > 0 && zoom.scale < zoom.minscale)) return;
+        zoom.scale *= e.deltaY < 0 ? 1.25 : 0.8;
+        moveImg(e);
+      }
+      // Drag-to-pan state
+      let panDragging = false, panStartX = 0, panStartY = 0, panOffsetX = 0, panOffsetY = 0;
+
+      function clampPan(x, y) {
+        let ih = zoom.clientHeight * zoom.scale, iw = zoom.clientWidth * zoom.scale;
+        let dh = docEl.clientHeight, dw = docEl.clientWidth;
+        let maxX = iw > dw ? (iw - dw) / 2 : 0;
+        let maxY = ih > dh ? (ih - dh) / 2 : 0;
+        return [Math.max(-maxX, Math.min(maxX, x)), Math.max(-maxY, Math.min(maxY, y))];
+      }
+
+      function applyPan() {
+        let [cx, cy] = clampPan(panOffsetX, panOffsetY);
+        panOffsetX = cx; panOffsetY = cy;
+        zoom.style.scale = zoom.scale;
+        zoom.style.translate = `${cx}px ${cy}px 0px`;
+      }
+
+      function coverMouseDown(e) {
+        if (isEditMode) return;
+        if (e.button !== 0) return;
+        // Check if clicked on cover/zoom background (not nav buttons)
+        if (e.target === cover || e.target === zoom) {
+          if (zoom && zoom.scale > zoom.minscale + 0.01) {
+            panDragging = true;
+            panStartX = e.clientX - panOffsetX;
+            panStartY = e.clientY - panOffsetY;
+            cover.style.cursor = 'grabbing';
+            e.preventDefault();
+          }
+        }
+      }
+
+      function coverMouseMove(e) {
+        if (annotEnabled && annotDrawing) return;
+        if (!panDragging) {
+          // Update cursor hint based on zoom level
+          if (zoom && zoom.scale > zoom.minscale + 0.01) cover.style.cursor = 'grab';
+          else cover.style.cursor = '';
+          return;
+        }
+        panOffsetX = e.clientX - panStartX;
+        panOffsetY = e.clientY - panStartY;
+        applyPan();
+      }
+
+      function coverMouseUp(e) {
+        if (!panDragging) return;
+        panDragging = false;
+        cover.style.cursor = zoom && zoom.scale > zoom.minscale + 0.01 ? 'grab' : '';
+      }
+
+      function moveImg(e) {
+        // Kept for compatibility (called from zoomImg after scale change)
+        applyPan();
+      }
+      function hideCover() {
+        const wasWrap = currentZoomWrap; // save before clearing
+        exitEditMode();
+        commitTextEdit();
+        annotObjects=[]; annotHistory=[]; selectedObj=null;
+        annotCtx.clearRect(0,0,annotCanvas.width,annotCanvas.height);
+        hideAnnotCanvas();
+        editModeBtn.style.display="none";
+        if(zoom){zoom.style.filter="";zoom.style.transform="";}
+        zoom.removeAttribute("style");
+        zoom.removeAttribute("class");
+        getEl("rep").replaceWith(zoom);
+        cover.classList.remove("show");
+
+        if(wasWrap){
+          requestAnimationFrame(()=>{
+            wasWrap.scrollIntoView({behavior:"smooth",block:"center"});
+            // Highlight the image briefly
+            document.querySelectorAll(".wrap.viewing").forEach(w=>w.classList.remove("viewing"));
+            wasWrap.classList.add("viewing");
+            setTimeout(()=>wasWrap.classList.remove("viewing"), 3000);
+          });
+          currentZoomWrap=null;
+        }
+      }
+      function copyImg(e) {
+        let img = e.target;
+        if (img.tagName !== "IMG") return;
+        let { canvas } = getThumb(img, 1920);
+        canvas.toBlob((blob) => navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]));
+        e.preventDefault();
+      }
+      function naviZoom(e) {
+        if (isEditMode) return; // no navigation during edit
+        e.stopPropagation();
+        let index = getEl("rep").parentElement.index;
+        index += e.target === nextimg || e.key === "ArrowRight" || e.key === "d" ? 1 : -1;
+        let wrap = getEl("img" + index);
+        if (!wrap) return;
+        if (!visImgs.has(index)) wrap.scrollIntoView();
+        // Clear annotations on navigation
+        annotCtx.clearRect(0, 0, annotCanvas.width, annotCanvas.height);
+        annotHistory = [];
+        resetEdit();
+        currentZoomWrap = wrap;
+        hideCoverSilent();
+        toggleZoom({ target: wrap.children[0] });
+      }
+      function hideCoverSilent() {
+        if (isEditMode) exitEditMode();
+        commitTextEdit();
+        annotObjects = []; annotHistory = []; selectedObj = null;
+        annotCtx.clearRect(0, 0, annotCanvas.width, annotCanvas.height);
+        if (zoom) { zoom.style.filter = ""; zoom.style.transform = ""; }
+        zoom.removeAttribute("style"); zoom.removeAttribute("class");
+        getEl("rep").replaceWith(zoom);
+        cover.classList.remove("show");
+        hideAnnotCanvas();
+      }
+
+      async function getWH(file) {
+        if (file.size < 30) return [0, 0];
+        let view = new DataView(await file.slice(0, 30).arrayBuffer());
+        let sign = view.getUint32();
+        if (sign === 0x89504e47) return [view.getUint32(16), view.getUint32(20)];
+        else if (sign === 0x47494638) return [view.getUint16(6, true), view.getUint16(8, true)];
+        else if (sign >>> 16 === 0x424d) return [view.getInt32(18, true), view.getInt32(22, true)];
+        else if (sign === 0x52494646) {
+          let vp8 = view.getUint32(12);
+          if (vp8 === 0x56503820) return [view.getUint16(26, true), view.getUint16(28, true)];
+          else if (vp8 === 0x56503858) return [view.getUint24(24, true)+1, view.getUint24(27, true)+1];
+          else if (vp8 === 0x5650384c) return [(view.getUint16(21, true)&0x3fff)+1, ((view.getUint24(22, true)>>>6)&0x3fff)+1];
+        } else if (sign >>> 8 === 0xffd8ff) {
+          view = new DataView(await file.slice(0, 128*1024).arrayBuffer());
+          let marker, offset = 2;
+          while (offset < view.byteLength) {
+            marker = view.getUint16(offset); offset += 2;
+            if (marker === 0xffc0 || marker === 0xffc2) return [view.getUint16(offset+5), view.getUint16(offset+3)];
+            offset += view.getUint16(offset);
+          }
+        }
+        let img = await new Promise((resolve) => {
+          let img = new Image();
+          let onloaded = () => { URL.revokeObjectURL(img.src); resolve(img); };
+          img.onload = onloaded; img.onerror = onloaded;
+          img.src = URL.createObjectURL(file);
+        });
+        return [img.naturalWidth, img.naturalHeight, img];
+      }
+      function parseRatio() {
+        let arr = [[" ",""],["\u2014","-"],["--","-"],["\uff1a",":"]].reduce((t, r) => t.replaceAll(...r), aspectratio.value)
+          .split("-").map((t, i) => t===""&&i===1 ? Infinity : t.split(":").map(Number).reduce((p,c)=>p/c)).sort();
+        [minR, maxR] = arr.concat(arr);
+        reflow();
+      }
+
+      // ============================================================
+      // INIT & EVENT BINDINGS
+      // ============================================================
+      initFlex(); initSort(); initFilt();
+      configs.forEach(initConfig);
+      imgbox.onmouseout = addInfo;
+      imgbox.onmouseenter = addInfo;
+      cursorplace.onmouseout = addInfo;
+      cover.onwheel = zoomImg;
+      // Also intercept wheel on annotation canvas (it sits above cover)
+      annotCanvas.addEventListener("wheel", (e) => { zoomImg(e); }, { passive: false });
+      previmg.onclick = naviZoom;
+      nextimg.onclick = naviZoom;
+      cover.onmousemove = coverMouseMove;
+      cover.addEventListener("mousedown", coverMouseDown);
+      cover.addEventListener("mouseup", coverMouseUp);
+      document.addEventListener("mouseup", () => { if (panDragging) { panDragging = false; cover.style.cursor = zoom && zoom.scale > zoom.minscale + 0.01 ? 'grab' : ''; } });
+      let panDidDrag = false;
+      cover.addEventListener("mousedown", () => { panDidDrag = false; });
+      cover.addEventListener("mousemove", () => { if (panDragging) panDidDrag = true; });
+      cover.onclick = (e) => {
+        if (panDidDrag) { panDidDrag = false; return; }
+        // Only close in browse mode; in edit mode clicks go to canvas
+        if (!isEditMode && (e.target === cover || e.target === zoom)) hideCover();
+      };
+      resort.onclick = reflow;
+      window.onresize = loadNext;
+      imgbox.onclick = toggleZoom;
+      document.onscroll = loadNext;
+      document.ondragend = copyImg;
+      document.ondrag = (e) => e.preventDefault();
+      document.ondragover = (e) => e.preventDefault();
+      document.ondragenter = (e) => e.preventDefault();
+      pause.onclick = () => (loadingAll = 0);
+      totop.onclick = () => docEl.scrollTo(0, 0);
+      toend.onclick = () => docEl.scrollTo(0, docEl.scrollHeight);
+      sidebtn.onclick = () => sidebar.classList.add("show");
+      loadall.onclick = () => { loadingAll = 1; loadNext(); };
+      aspectratio.onkeydown = (e) => { if (e.key === "Enter") parseRatio(); };
+      treebtn.onclick = () => { treebar.classList.add("show"); currdir?.scrollIntoView({ block: "center" }); };
+      jumpTo.onkeydown = (e) => { if (e.key === "Enter") getEl("img"+parseInt(jumpTo.value)).scrollIntoView(); };
+      colcountinput.addEventListener("change", () => { if (flextype === enums.colflex) reflow(); });
+      minheightinput.addEventListener("change", () => {
+        if (flextype === enums.rowflex) requestAnimationFrame(() => { imgbox.querySelectorAll(".wrap").forEach(resize); loadNext(); });
+      });
+      dirtree.onclick = (e) => {
+        let li = e.target;
+        if (li.tagName !== "LI") treebar.classList.remove("show");
+        else if (sortby.value === enums.default && order.value === enums.asc) reflow(li.index - 1);
+        e.stopPropagation();
+      };
+      dirtree.onwheel = (e) => {
+        if ((dirtree.scrollTop===0&&e.deltaY<0)||(dirtree.scrollTop+dirtree.clientHeight>=dirtree.scrollHeight&&e.deltaY>0)) e.preventDefault();
+      };
+      document.addEventListener("mousedown", (e) => { if (e.button === 0) held = true; });
+      document.addEventListener("mouseup", (e) => {
+        if (e.button === 3) scrollBy(0, 0.9*docEl.clientHeight);
+        if (e.button === 4) scrollBy(0, -0.9*docEl.clientHeight);
+        if (e.button === 0) { held = false; indicator.classList.remove("show"); }
+        e.preventDefault();
+      });
+      document.addEventListener("scroll", () => {
+        if (held) { let currIndex = Math.min(...visImgs); indicator.innerText = currIndex; indicator.classList.add("show"); }
+      });
+      document.addEventListener("click", (e) => {
+        [sidebar, treebar].forEach((el) => {
+          if (el.classList.contains("show") && !el.contains(e.target)) { el.classList.remove("show"); e.stopPropagation(); }
+        });
+      }, true);
+      document.addEventListener("keydown", (e) => {
+        const textActive = document.activeElement === textOverlay;
+        // Edit mode shortcuts
+        if (isEditMode && !textActive) {
+          if (e.ctrlKey && e.key === "z") { undoAnnot(); e.preventDefault(); return; }
+          if ((e.key === "Delete" || e.key === "Backspace") && selectedObj) {
+            saveHistory(); annotObjects = annotObjects.filter(o => o !== selectedObj); selectedObj = null; redrawAll(); e.preventDefault(); return;
+          }
+          if (e.key === "Escape") { exitEditMode(); return; }
+          // Tool shortcuts
+          const toolId = { a:"toolArrow", p:"toolPen", l:"toolLine", r:"toolRect", c:"toolCircle", t:"toolText", m:"toolMarker", x:"toolEraser" }[e.key.toLowerCase()];
+          if (toolId) { setTool(toolId); return; }
+        }
+        // Browse mode shortcuts (cover open, not edit mode)
+        if (cover.classList.contains("show") && !isEditMode) {
+          if (e.key === "Escape") { hideCover(); return; }
+          if (["ArrowLeft","ArrowRight","a","d"].includes(e.key)) { naviZoom(e); return; }
+          if (e.key === "e" || e.key === "E") { enterEditMode(); return; }
+        }
+        // Text overlay escape
+        if (textActive && e.key === "Escape") {
+          editingTextObj = null; textOverlay.style.display = "none"; textOverlay.textContent = ""; redrawAll(); return;
+        }
+        // Global E key when cover showing
+        if ((e.key === "e" || e.key === "E") && cover.classList.contains("show") && !textActive) {
+          if (isEditMode) exitEditMode(); else enterEditMode(); return;
+        }
+        if (e.key === "Escape" && !cover.classList.contains("show")) {
+          if (treebar.classList.contains("show")) treebar.classList.remove("show");
+          else sidebar.classList.toggle("show");
+        }
+      });
+    </script>
+    <div id="toolTip"></div>
+  </body>
+</html>
