@@ -1,4 +1,4 @@
-# Masonry Image Viewer
+# Web Image Viewer
 ###  瀑布流本地图片浏览器
 
 - [Demo](https://wlm3201.github.io/Masonry_Image_Viewer)
